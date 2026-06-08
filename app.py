@@ -2,6 +2,7 @@ import cv2
 import os
 import time
 import threading
+import json
 from flask import Flask, Response, render_template, jsonify, send_from_directory, request
 from datetime import datetime
 import config
@@ -198,6 +199,77 @@ def snapshot_nth(n):
     if n < len(snaps):
         return send_from_directory(config.SNAPSHOT_DIR, snaps[n])
     return "", 204
+
+
+# ─── Pressure Data ───────────────────────────────────────────────────────────
+
+_PRESSURE_FILE = os.path.join(config.BASE_DIR, "pressure_data.json")
+_pressure_lock = threading.Lock()
+
+
+def _load_pressure():
+    if os.path.exists(_PRESSURE_FILE):
+        with open(_PRESSURE_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def _save_pressure(data):
+    with open(_PRESSURE_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+pressure_store = _load_pressure()
+
+
+@app.route("/api/pressure", methods=["GET"])
+def get_pressure():
+    preset = request.args.get("preset", "default")
+    with _pressure_lock:
+        return jsonify(pressure_store.get(preset, []))
+
+
+@app.route("/api/pressure", methods=["POST"])
+def add_pressure():
+    body = request.get_json()
+    preset = body.get("preset", "default")
+    try:
+        value = float(body["value"])
+    except (KeyError, ValueError):
+        return jsonify({"ok": False, "error": "Invalid value"}), 400
+    entry = {"time": body.get("time", ""), "value": value}
+    with _pressure_lock:
+        pressure_store.setdefault(preset, []).append(entry)
+        _save_pressure(pressure_store)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/pressure/point", methods=["DELETE"])
+def delete_pressure_point():
+    body = request.get_json()
+    preset = body.get("preset", "default")
+    idx = body.get("index")
+    with _pressure_lock:
+        pts = pressure_store.get(preset, [])
+        if idx is not None and 0 <= idx < len(pts):
+            pts.pop(idx)
+            _save_pressure(pressure_store)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/pressure/reset", methods=["POST"])
+def reset_pressure():
+    preset = request.get_json().get("preset", "default")
+    with _pressure_lock:
+        pressure_store[preset] = []
+        _save_pressure(pressure_store)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/pressure/presets", methods=["GET"])
+def list_presets():
+    with _pressure_lock:
+        return jsonify(sorted(pressure_store.keys()))
 
 
 # ─── Grafana Embed Pages ──────────────────────────────────────────────────────

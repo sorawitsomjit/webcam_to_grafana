@@ -4,161 +4,145 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Vacuum Pressure Monitor</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-  body {
-    background: #111;
-    color: #ddd;
-    font-family: 'Segoe UI', Arial, sans-serif;
-    min-height: 100vh;
-  }
+  body { background: #111; color: #ddd; font-family: 'Segoe UI', Arial, sans-serif; min-height: 100vh; }
 
   /* ── Header ── */
   header {
-    background: #1a1a1a;
-    border-bottom: 1px solid #2a2a2a;
-    padding: 10px 20px;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    position: sticky;
-    top: 0;
-    z-index: 100;
+    background: #1a1a1a; border-bottom: 1px solid #2a2a2a;
+    padding: 10px 20px; display: flex; align-items: center; gap: 14px;
+    position: sticky; top: 0; z-index: 100;
   }
   header h1 { font-size: 1.05rem; font-weight: 600; color: #f0f0f0; flex: 1; }
-
-  .badge {
-    padding: 3px 10px;
-    border-radius: 10px;
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: .06em;
-  }
-  .badge-live   { background: #b71c1c; color: #fff; animation: blink 1.6s infinite; }
-  .badge-off    { background: #333; color: #777; }
+  .badge { padding: 3px 10px; border-radius: 10px; font-size: .72rem; font-weight: 700; letter-spacing: .06em; }
+  .badge-live { background: #b71c1c; color: #fff; animation: blink 1.6s infinite; }
+  .badge-off  { background: #333; color: #777; }
   @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.5} }
-
-  .clock { font-size: 0.78rem; color: #666; white-space: nowrap; }
+  .clock { font-size: .78rem; color: #666; white-space: nowrap; }
 
   /* ── Layout ── */
-  main { max-width: 1400px; margin: 0 auto; padding: 20px; }
-
+  main { max-width: 1600px; margin: 0 auto; padding: 20px; }
   section { margin-bottom: 28px; }
-
   .sec-title {
-    font-size: 0.72rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: .1em;
-    color: #666;
-    padding-bottom: 8px;
-    border-bottom: 1px solid #222;
-    margin-bottom: 14px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
+    font-size: .72rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .1em; color: #666; padding-bottom: 8px;
+    border-bottom: 1px solid #222; margin-bottom: 14px;
+    display: flex; align-items: center; gap: 8px;
   }
   .sec-title span { color: #555; font-weight: 400; }
 
+  /* ── Top row: stream + graph ── */
+  .top-row {
+    display: grid;
+    grid-template-columns: minmax(320px, 1fr) minmax(380px, 1.4fr);
+    gap: 20px;
+    margin-bottom: 28px;
+    align-items: start;
+  }
+
   /* ── Stream ── */
   .stream-wrap {
-    background: #000;
-    border-radius: 6px;
-    overflow: hidden;
-    display: inline-block;
-    max-width: 100%;
-    border: 1px solid #222;
+    background: #000; border-radius: 6px; overflow: hidden;
+    display: block; width: 100%; border: 1px solid #222;
   }
-  .stream-wrap img { display: block; max-width: 100%; max-height: 58vh; }
+  .stream-wrap img { width: 100%; display: block; }
   .stream-placeholder {
-    width: 640px; max-width: 100%; height: 360px;
-    display: flex; align-items: center; justify-content: center;
-    color: #444; font-size: .9rem; background: #0a0a0a;
+    width: 100%; height: 240px; display: flex; align-items: center;
+    justify-content: center; color: #444; font-size: .9rem; background: #0a0a0a;
   }
-
   .controls { display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+  .info-tag { font-size: .75rem; color: #555; }
 
+  /* ── Buttons ── */
   .btn {
-    background: #1a237e;
-    color: #fff;
-    border: none;
-    padding: 7px 18px;
-    border-radius: 5px;
-    cursor: pointer;
-    font-size: .82rem;
-    transition: background .15s;
+    background: #1a237e; color: #fff; border: none; padding: 7px 16px;
+    border-radius: 5px; cursor: pointer; font-size: .82rem; transition: background .15s;
   }
   .btn:hover { background: #283593; }
   .btn:active { background: #0d1257; }
-  .btn-green { background: #1b5e20; }
+  .btn-green  { background: #1b5e20; }
   .btn-green:hover { background: #256427; }
+  .btn-red    { background: #7f0000; }
+  .btn-red:hover { background: #b71c1c; }
+  .btn-sm { padding: 4px 11px; font-size: .78rem; }
 
-  .info-tag { font-size: .75rem; color: #555; }
+  /* ── Graph panel ── */
+  .graph-panel { background: #1a1a1a; border: 1px solid #262626; border-radius: 6px; padding: 14px; }
+
+  .chart-wrap { position: relative; height: 260px; margin-bottom: 14px; }
+
+  .graph-controls { display: flex; flex-direction: column; gap: 10px; }
+
+  .preset-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .preset-row label { font-size: .75rem; color: #666; white-space: nowrap; }
+
+  select {
+    background: #1e1e1e; border: 1px solid #333; color: #ccc;
+    padding: 5px 10px; border-radius: 4px; font-size: .82rem; cursor: pointer; flex: 1; min-width: 120px;
+  }
+  select:focus { outline: none; border-color: #3949ab; }
+
+  .input-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .input-row label { font-size: .75rem; color: #666; white-space: nowrap; }
+
+  input[type="datetime-local"], input[type="text"], input[type="number"] {
+    background: #1e1e1e; border: 1px solid #333; color: #ccc;
+    padding: 5px 10px; border-radius: 4px; font-size: .82rem;
+  }
+  input:focus { outline: none; border-color: #3949ab; }
+  input[type="datetime-local"] { flex: 1; min-width: 170px; }
+  input[type="text"]#valueInput { width: 110px; font-family: monospace; }
+
+  .unit-tag { font-size: .78rem; color: #666; white-space: nowrap; }
+
+  /* ── Data table ── */
+  .data-table-wrap { margin-top: 10px; max-height: 130px; overflow-y: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: .75rem; }
+  th { color: #555; font-weight: 600; padding: 4px 8px; text-align: left;
+       border-bottom: 1px solid #222; position: sticky; top: 0; background: #1a1a1a; }
+  td { color: #888; padding: 4px 8px; border-bottom: 1px solid #1e1e1e; }
+  tr:hover td { background: #222; }
+  td.val { font-family: monospace; color: #aaa; }
+  .del-btn {
+    background: none; border: none; color: #555; cursor: pointer;
+    font-size: .8rem; padding: 0 4px; transition: color .15s;
+  }
+  .del-btn:hover { color: #ef5350; }
 
   /* ── Limit bar ── */
   .limit-bar { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 14px; }
   .limit-bar > label { font-size: .75rem; color: #666; }
-
   .lbtn {
-    background: #1e1e1e;
-    color: #999;
-    border: 1px solid #333;
-    padding: 4px 13px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: .78rem;
-    text-decoration: none;
-    transition: all .15s;
+    background: #1e1e1e; color: #999; border: 1px solid #333; padding: 4px 13px;
+    border-radius: 4px; cursor: pointer; font-size: .78rem; text-decoration: none; transition: all .15s;
   }
   .lbtn:hover { background: #2a2a2a; color: #ddd; }
   .lbtn.active { background: #1a237e; border-color: #3949ab; color: #fff; }
-
   .custom-row { display: flex; gap: 6px; align-items: center; }
-  .custom-row input {
-    background: #1e1e1e; border: 1px solid #333; color: #ddd;
-    padding: 4px 9px; border-radius: 4px; width: 68px; font-size: .78rem;
-  }
-  .custom-row input:focus { outline: none; border-color: #3949ab; }
+  .custom-row input[type="number"] { width: 68px; }
 
-  /* ── Grid ── */
-  .snap-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 10px;
-  }
-
-  .card {
-    background: #1a1a1a;
-    border: 1px solid #262626;
-    border-radius: 5px;
-    overflow: hidden;
-    transition: border-color .15s;
-  }
+  /* ── Snap grid ── */
+  .snap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+  .card { background: #1a1a1a; border: 1px solid #262626; border-radius: 5px; overflow: hidden; transition: border-color .15s; }
   .card:hover { border-color: #3a3a3a; }
   .card a { display: block; }
   .card img { width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block; }
-  .card .ts {
-    padding: 6px 8px;
-    font-size: .7rem;
-    color: #666;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
+  .card .ts { padding: 6px 8px; font-size: .7rem; color: #666; }
   .empty { color: #444; font-size: .85rem; padding: 16px 0; }
 
   /* ── Toast ── */
   #toast {
-    position: fixed; bottom: 20px; right: 20px;
-    background: #1b5e20; color: #fff;
-    padding: 10px 18px; border-radius: 5px;
-    font-size: .82rem; opacity: 0;
-    transition: opacity .25s; z-index: 9999;
-    pointer-events: none;
+    position: fixed; bottom: 20px; right: 20px; background: #1b5e20; color: #fff;
+    padding: 10px 18px; border-radius: 5px; font-size: .82rem; opacity: 0;
+    transition: opacity .25s; z-index: 9999; pointer-events: none;
   }
   #toast.show { opacity: 1; }
+
+  @media (max-width: 800px) {
+    .top-row { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
@@ -175,24 +159,71 @@
 
 <main>
 
-  <!-- ── Live Stream ── -->
-  <section>
-    <div class="sec-title">Live Stream</div>
-    <div class="stream-wrap">
-      {% if camera_ok %}
-      <img src="/video_feed" alt="Live Feed">
-      {% else %}
-      <div class="stream-placeholder">Camera not available</div>
-      {% endif %}
-    </div>
-    <div class="controls">
-      <button class="btn btn-green" onclick="takeSnapshot()">&#128247; Snapshot</button>
-      <span class="info-tag">Auto every {{ interval }}s</span>
-      <span class="info-tag" id="last-snap-label">
-        {% if all_snaps %}Last: {{ all_snaps[0]|format_ts }}{% endif %}
-      </span>
-    </div>
-  </section>
+  <!-- ── Top row: Stream + Graph ── -->
+  <div class="top-row">
+
+    <!-- Stream -->
+    <section style="margin-bottom:0;">
+      <div class="sec-title">Live Stream</div>
+      <div class="stream-wrap">
+        {% if camera_ok %}
+        <img src="/video_feed" alt="Live Feed">
+        {% else %}
+        <div class="stream-placeholder">Camera not available</div>
+        {% endif %}
+      </div>
+      <div class="controls">
+        <button class="btn btn-green" onclick="takeSnapshot()">&#128247; Snapshot</button>
+        <span class="info-tag">Auto every {{ interval }}s</span>
+        {% if all_snaps %}<span class="info-tag">Last: {{ all_snaps[0]|format_ts }}</span>{% endif %}
+      </div>
+    </section>
+
+    <!-- Graph -->
+    <section class="graph-panel" style="margin-bottom:0;">
+      <div class="sec-title">
+        Vacuum Pressure
+        <span id="preset-label">default</span>
+      </div>
+
+      <div class="chart-wrap">
+        <canvas id="pressureChart"></canvas>
+      </div>
+
+      <div class="graph-controls">
+
+        <!-- Preset row -->
+        <div class="preset-row">
+          <label>Preset:</label>
+          <select id="presetSelect" onchange="switchPreset(this.value)"></select>
+          <button class="btn btn-sm" onclick="newPreset()">+ New</button>
+          <button class="btn btn-sm btn-red" onclick="resetPreset()">Reset</button>
+        </div>
+
+        <!-- Input row -->
+        <div class="input-row">
+          <label>Time:</label>
+          <input type="datetime-local" id="timeInput" step="1">
+          <label>Value:</label>
+          <input type="text" id="valueInput" placeholder="3.4E+0" autocomplete="off">
+          <span class="unit-tag">hPa</span>
+          <button class="btn btn-green btn-sm" onclick="addPoint()">+ Add</button>
+        </div>
+
+        <!-- Data table -->
+        <div class="data-table-wrap">
+          <table>
+            <thead>
+              <tr><th>#</th><th>Time</th><th>Value (hPa)</th><th></th></tr>
+            </thead>
+            <tbody id="dataTableBody"></tbody>
+          </table>
+        </div>
+
+      </div>
+    </section>
+
+  </div>
 
   <!-- ── Recent Snapshots ── -->
   <section>
@@ -200,7 +231,6 @@
       Recent Snapshots
       <span>{{ recent|length }} shown</span>
     </div>
-
     <div class="limit-bar">
       <label>Show:</label>
       {% for n in [5, 10, 20, 30] %}
@@ -208,10 +238,9 @@
       {% endfor %}
       <div class="custom-row">
         <input type="number" id="cLimit" placeholder="Custom" min="1" max="9999">
-        <button class="btn" style="padding:4px 11px;font-size:.78rem" onclick="applyLimit()">Go</button>
+        <button class="btn btn-sm" onclick="applyLimit()">Go</button>
       </div>
     </div>
-
     {% if recent %}
     <div class="snap-grid">
       {% for snap in recent %}
@@ -228,13 +257,9 @@
     {% endif %}
   </section>
 
-  <!-- ── Gallery (all) ── -->
+  <!-- ── Gallery ── -->
   <section>
-    <div class="sec-title">
-      Gallery — All Snapshots
-      <span>{{ total }} total</span>
-    </div>
-
+    <div class="sec-title">Gallery — All Snapshots <span>{{ total }} total</span></div>
     {% if all_snaps %}
     <div class="snap-grid">
       {% for snap in all_snaps %}
@@ -256,45 +281,193 @@
 <div id="toast"></div>
 
 <script>
-  // Clock
-  (function tick() {
-    document.getElementById('clock').textContent = new Date().toLocaleString('en-GB');
-    setTimeout(tick, 1000);
-  })();
+// ── Clock ──────────────────────────────────────────────────────────────────
+(function tick() {
+  document.getElementById('clock').textContent = new Date().toLocaleString('en-GB');
+  setTimeout(tick, 1000);
+})();
 
-  // Custom limit
-  function applyLimit() {
-    const v = parseInt(document.getElementById('cLimit').value);
-    if (v > 0) location.href = '/?limit=' + v;
-  }
-  document.getElementById('cLimit').addEventListener('keydown', e => {
-    if (e.key === 'Enter') applyLimit();
-  });
+// ── Snapshot ──────────────────────────────────────────────────────────────
+function applyLimit() {
+  const v = parseInt(document.getElementById('cLimit').value);
+  if (v > 0) location.href = '/?limit=' + v;
+}
+document.getElementById('cLimit').addEventListener('keydown', e => { if (e.key === 'Enter') applyLimit(); });
 
-  // Toast
-  function toast(msg, ok = true) {
-    const el = document.getElementById('toast');
-    el.textContent = msg;
-    el.style.background = ok ? '#1b5e20' : '#b71c1c';
-    el.classList.add('show');
-    setTimeout(() => el.classList.remove('show'), 3000);
-  }
+function toast(msg, ok = true) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.background = ok ? '#1b5e20' : '#b71c1c';
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
 
-  // Manual snapshot
-  async function takeSnapshot() {
-    try {
-      const r = await fetch('/snapshot', { method: 'POST' });
-      const d = await r.json();
-      if (d.ok) {
-        toast('Saved: ' + d.filename);
-        setTimeout(() => location.reload(), 1600);
-      } else {
-        toast(d.error || 'Failed', false);
+async function takeSnapshot() {
+  const r = await fetch('/snapshot', { method: 'POST' });
+  const d = await r.json();
+  if (d.ok) { toast('Saved: ' + d.filename); setTimeout(() => location.reload(), 1600); }
+  else toast(d.error || 'Failed', false);
+}
+
+// ── Chart setup ────────────────────────────────────────────────────────────
+let chart;
+let currentPreset = 'default';
+let storeCache = {}; // preset -> [{time, value}]
+
+Chart.defaults.color = '#666';
+Chart.defaults.borderColor = '#222';
+
+function initChart() {
+  const ctx = document.getElementById('pressureChart').getContext('2d');
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: { datasets: [{ data: [], borderColor: '#4a9eff', backgroundColor: 'rgba(74,158,255,.1)',
+                         pointBackgroundColor: '#4a9eff', pointRadius: 5, tension: 0.25,
+                         label: currentPreset }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { ticks: { maxTicksLimit: 7, maxRotation: 30 }, grid: { color: '#1e1e1e' } },
+        y: { ticks: { callback: v => v.toExponential(2) }, grid: { color: '#1e1e1e' } }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: { label: ctx => ctx.parsed.y.toExponential(3) + ' hPa' }
+        }
       }
-    } catch {
-      toast('Network error', false);
     }
+  });
+}
+
+function fmtLabel(dtStr) {
+  // "2026-06-08T14:30" -> "08/06 14:30"
+  try {
+    const d = new Date(dtStr);
+    const dd = String(d.getDate()).padStart(2,'0');
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    const hh = String(d.getHours()).padStart(2,'0');
+    const mi = String(d.getMinutes()).padStart(2,'0');
+    return dd+'/'+mm+' '+hh+':'+mi;
+  } catch { return dtStr; }
+}
+
+function renderChart() {
+  const pts = storeCache[currentPreset] || [];
+  chart.data.labels = pts.map(p => fmtLabel(p.time));
+  chart.data.datasets[0].data = pts.map(p => p.value);
+  chart.data.datasets[0].label = currentPreset;
+  chart.update();
+  document.getElementById('preset-label').textContent = currentPreset;
+  renderTable();
+}
+
+function renderTable() {
+  const pts = storeCache[currentPreset] || [];
+  const tbody = document.getElementById('dataTableBody');
+  tbody.innerHTML = pts.slice().reverse().map((p, ri) => {
+    const i = pts.length - 1 - ri;
+    return `<tr>
+      <td>${i + 1}</td>
+      <td>${fmtLabel(p.time)}</td>
+      <td class="val">${p.value.toExponential(3)}</td>
+      <td><button class="del-btn" onclick="deletePoint(${i})" title="Delete">✕</button></td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Preset management ──────────────────────────────────────────────────────
+async function loadPresets() {
+  const r = await fetch('/api/pressure/presets');
+  let presets = await r.json();
+  if (!presets.includes('default')) presets = ['default', ...presets];
+  const sel = document.getElementById('presetSelect');
+  sel.innerHTML = presets.map(p =>
+    `<option value="${p}" ${p === currentPreset ? 'selected' : ''}>${p}</option>`
+  ).join('');
+}
+
+async function loadData(preset) {
+  const r = await fetch('/api/pressure?preset=' + encodeURIComponent(preset));
+  storeCache[preset] = await r.json();
+}
+
+async function switchPreset(name) {
+  currentPreset = name;
+  if (!storeCache[name]) await loadData(name);
+  renderChart();
+}
+
+async function newPreset() {
+  const name = prompt('Preset name:');
+  if (!name || !name.trim()) return;
+  const trimmed = name.trim();
+  storeCache[trimmed] = [];
+  currentPreset = trimmed;
+  await loadPresets();
+  document.getElementById('presetSelect').value = trimmed;
+  renderChart();
+}
+
+async function resetPreset() {
+  if (!confirm('Reset "' + currentPreset + '" — ล้างข้อมูลทั้งหมด?')) return;
+  await fetch('/api/pressure/reset', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ preset: currentPreset })
+  });
+  storeCache[currentPreset] = [];
+  renderChart();
+  toast('Reset: ' + currentPreset);
+}
+
+// ── Add / Delete data point ────────────────────────────────────────────────
+async function addPoint() {
+  const valStr = document.getElementById('valueInput').value.trim();
+  const timeStr = document.getElementById('timeInput').value;
+  if (!valStr) { toast('กรอกค่าแรงดันก่อน', false); return; }
+  if (!timeStr) { toast('กรอกเวลาก่อน', false); return; }
+  const value = parseFloat(valStr);
+  if (isNaN(value)) { toast('รูปแบบค่าไม่ถูกต้อง เช่น 3.4E+0', false); return; }
+
+  const r = await fetch('/api/pressure', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ preset: currentPreset, time: timeStr, value })
+  });
+  const d = await r.json();
+  if (d.ok) {
+    storeCache[currentPreset].push({ time: timeStr, value });
+    renderChart();
+    document.getElementById('valueInput').value = '';
+    toast('Added: ' + value.toExponential(3) + ' hPa');
   }
+}
+
+async function deletePoint(index) {
+  await fetch('/api/pressure/point', {
+    method: 'DELETE', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ preset: currentPreset, index })
+  });
+  storeCache[currentPreset].splice(index, 1);
+  renderChart();
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+(async function init() {
+  // default time = now
+  const now = new Date();
+  now.setSeconds(0, 0);
+  document.getElementById('timeInput').value = now.toISOString().slice(0, 16);
+
+  initChart();
+  await loadPresets();
+  await loadData(currentPreset);
+  renderChart();
+
+  // allow Enter key on value input
+  document.getElementById('valueInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') addPoint();
+  });
+})();
 </script>
 
 </body>
