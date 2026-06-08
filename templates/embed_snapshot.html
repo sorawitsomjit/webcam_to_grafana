@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; background: #111; overflow: hidden; }
+  img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .ts {
+    position: absolute; bottom: 6px; right: 10px;
+    font-family: monospace; font-size: 10px; color: #444;
+  }
+  .no-snap {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    color: #444; font-family: monospace; font-size: 13px;
+  }
+</style>
+</head>
+<body style="position:relative;">
+  {% if has_snap %}
+  <img id="snap" src="/latest" alt="Latest Snapshot">
+  <div class="ts" id="ts"></div>
+  {% else %}
+  <div class="no-snap">No snapshots yet</div>
+  {% endif %}
+
+  <script>
+    {% if has_snap %}
+    var interval = {{ interval_ms }};
+    function refresh() {
+      document.getElementById('snap').src = '/latest?t=' + Date.now();
+      document.getElementById('ts').textContent = new Date().toLocaleString('en-GB');
+    }
+    document.getElementById('ts').textContent = new Date().toLocaleString('en-GB');
+    setInterval(refresh, interval);
+    {% endif %}
+  </script>
+</body>
+</html>

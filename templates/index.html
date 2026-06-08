@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vacuum Pressure Monitor</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #111;
+    color: #ddd;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    min-height: 100vh;
+  }
+
+  /* ── Header ── */
+  header {
+    background: #1a1a1a;
+    border-bottom: 1px solid #2a2a2a;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  header h1 { font-size: 1.05rem; font-weight: 600; color: #f0f0f0; flex: 1; }
+
+  .badge {
+    padding: 3px 10px;
+    border-radius: 10px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: .06em;
+  }
+  .badge-live   { background: #b71c1c; color: #fff; animation: blink 1.6s infinite; }
+  .badge-off    { background: #333; color: #777; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+  .clock { font-size: 0.78rem; color: #666; white-space: nowrap; }
+
+  /* ── Layout ── */
+  main { max-width: 1400px; margin: 0 auto; padding: 20px; }
+
+  section { margin-bottom: 28px; }
+
+  .sec-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    color: #666;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #222;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .sec-title span { color: #555; font-weight: 400; }
+
+  /* ── Stream ── */
+  .stream-wrap {
+    background: #000;
+    border-radius: 6px;
+    overflow: hidden;
+    display: inline-block;
+    max-width: 100%;
+    border: 1px solid #222;
+  }
+  .stream-wrap img { display: block; max-width: 100%; max-height: 58vh; }
+  .stream-placeholder {
+    width: 640px; max-width: 100%; height: 360px;
+    display: flex; align-items: center; justify-content: center;
+    color: #444; font-size: .9rem; background: #0a0a0a;
+  }
+
+  .controls { display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+
+  .btn {
+    background: #1a237e;
+    color: #fff;
+    border: none;
+    padding: 7px 18px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: .82rem;
+    transition: background .15s;
+  }
+  .btn:hover { background: #283593; }
+  .btn:active { background: #0d1257; }
+  .btn-green { background: #1b5e20; }
+  .btn-green:hover { background: #256427; }
+
+  .info-tag { font-size: .75rem; color: #555; }
+
+  /* ── Limit bar ── */
+  .limit-bar { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 14px; }
+  .limit-bar > label { font-size: .75rem; color: #666; }
+
+  .lbtn {
+    background: #1e1e1e;
+    color: #999;
+    border: 1px solid #333;
+    padding: 4px 13px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: .78rem;
+    text-decoration: none;
+    transition: all .15s;
+  }
+  .lbtn:hover { background: #2a2a2a; color: #ddd; }
+  .lbtn.active { background: #1a237e; border-color: #3949ab; color: #fff; }
+
+  .custom-row { display: flex; gap: 6px; align-items: center; }
+  .custom-row input {
+    background: #1e1e1e; border: 1px solid #333; color: #ddd;
+    padding: 4px 9px; border-radius: 4px; width: 68px; font-size: .78rem;
+  }
+  .custom-row input:focus { outline: none; border-color: #3949ab; }
+
+  /* ── Grid ── */
+  .snap-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+  }
+
+  .card {
+    background: #1a1a1a;
+    border: 1px solid #262626;
+    border-radius: 5px;
+    overflow: hidden;
+    transition: border-color .15s;
+  }
+  .card:hover { border-color: #3a3a3a; }
+  .card a { display: block; }
+  .card img { width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block; }
+  .card .ts {
+    padding: 6px 8px;
+    font-size: .7rem;
+    color: #666;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .empty { color: #444; font-size: .85rem; padding: 16px 0; }
+
+  /* ── Toast ── */
+  #toast {
+    position: fixed; bottom: 20px; right: 20px;
+    background: #1b5e20; color: #fff;
+    padding: 10px 18px; border-radius: 5px;
+    font-size: .82rem; opacity: 0;
+    transition: opacity .25s; z-index: 9999;
+    pointer-events: none;
+  }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Vacuum Pressure Monitor — Fast CCD</h1>
+  {% if camera_ok %}
+  <span class="badge badge-live">● LIVE</span>
+  {% else %}
+  <span class="badge badge-off">● OFFLINE</span>
+  {% endif %}
+  <span class="clock" id="clock"></span>
+</header>
+
+<main>
+
+  <!-- ── Live Stream ── -->
+  <section>
+    <div class="sec-title">Live Stream</div>
+    <div class="stream-wrap">
+      {% if camera_ok %}
+      <img src="/video_feed" alt="Live Feed">
+      {% else %}
+      <div class="stream-placeholder">Camera not available</div>
+      {% endif %}
+    </div>
+    <div class="controls">
+      <button class="btn btn-green" onclick="takeSnapshot()">&#128247; Snapshot</button>
+      <span class="info-tag">Auto every {{ interval }}s</span>
+      <span class="info-tag" id="last-snap-label">
+        {% if all_snaps %}Last: {{ all_snaps[0]|format_ts }}{% endif %}
+      </span>
+    </div>
+  </section>
+
+  <!-- ── Recent Snapshots ── -->
+  <section>
+    <div class="sec-title">
+      Recent Snapshots
+      <span>{{ recent|length }} shown</span>
+    </div>
+
+    <div class="limit-bar">
+      <label>Show:</label>
+      {% for n in [5, 10, 20, 30] %}
+      <a href="/?limit={{ n }}" class="lbtn {% if limit == n %}active{% endif %}">{{ n }}</a>
+      {% endfor %}
+      <div class="custom-row">
+        <input type="number" id="cLimit" placeholder="Custom" min="1" max="9999">
+        <button class="btn" style="padding:4px 11px;font-size:.78rem" onclick="applyLimit()">Go</button>
+      </div>
+    </div>
+
+    {% if recent %}
+    <div class="snap-grid">
+      {% for snap in recent %}
+      <div class="card">
+        <a href="/snapshots/{{ snap }}" target="_blank">
+          <img src="/snapshots/{{ snap }}" alt="{{ snap }}" loading="lazy">
+        </a>
+        <div class="ts">{{ snap|format_ts }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">No snapshots yet — first auto-snapshot in {{ interval }}s.</p>
+    {% endif %}
+  </section>
+
+  <!-- ── Gallery (all) ── -->
+  <section>
+    <div class="sec-title">
+      Gallery — All Snapshots
+      <span>{{ total }} total</span>
+    </div>
+
+    {% if all_snaps %}
+    <div class="snap-grid">
+      {% for snap in all_snaps %}
+      <div class="card">
+        <a href="/snapshots/{{ snap }}" target="_blank">
+          <img src="/snapshots/{{ snap }}" alt="{{ snap }}" loading="lazy">
+        </a>
+        <div class="ts">{{ snap|format_ts }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">No snapshots stored yet.</p>
+    {% endif %}
+  </section>
+
+</main>
+
+<div id="toast"></div>
+
+<script>
+  // Clock
+  (function tick() {
+    document.getElementById('clock').textContent = new Date().toLocaleString('en-GB');
+    setTimeout(tick, 1000);
+  })();
+
+  // Custom limit
+  function applyLimit() {
+    const v = parseInt(document.getElementById('cLimit').value);
+    if (v > 0) location.href = '/?limit=' + v;
+  }
+  document.getElementById('cLimit').addEventListener('keydown', e => {
+    if (e.key === 'Enter') applyLimit();
+  });
+
+  // Toast
+  function toast(msg, ok = true) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.style.background = ok ? '#1b5e20' : '#b71c1c';
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 3000);
+  }
+
+  // Manual snapshot
+  async function takeSnapshot() {
+    try {
+      const r = await fetch('/snapshot', { method: 'POST' });
+      const d = await r.json();
+      if (d.ok) {
+        toast('Saved: ' + d.filename);
+        setTimeout(() => location.reload(), 1600);
+      } else {
+        toast(d.error || 'Failed', false);
+      }
+    } catch {
+      toast('Network error', false);
+    }
+  }
+</script>
+
+</body>
+</html>

@@ -1,0 +1,82 @@
+Grafana Integration — Webcam to Grafana
+========================================
+Flask server: http://<HOST>:5000   (เปลี่ยน <HOST> เป็น IP จริง เช่น 192.168.44.154)
+
+!! ใช้แบบ no-iframe — วาง HTML ตรงใน Grafana Text panel (HTML mode) !!
+
+── Panel 1 — Live Stream ──────────────────────────────────────────────────────
+  Type: Text panel → HTML mode
+  วาง:
+
+    <img src="http://<HOST>:5000/video_feed"
+         style="width:100%;display:block;background:#111;">
+
+
+── Panel 2 — Latest Snapshot (auto-refresh) ───────────────────────────────────
+  Type: Text panel → HTML mode
+  วาง:
+
+    <div style="background:#111;">
+      <img id="s" src="http://<HOST>:5000/latest"
+           style="width:100%;display:block;">
+      <div id="t" style="text-align:right;font-family:monospace;font-size:10px;
+                         color:#555;padding:2px 6px;"></div>
+    </div>
+    <script>
+      function r(){
+        document.getElementById('s').src='http://<HOST>:5000/latest?t='+Date.now();
+        document.getElementById('t').textContent=new Date().toLocaleString('en-GB');
+      }
+      document.getElementById('t').textContent=new Date().toLocaleString('en-GB');
+      setInterval(r, 60000);
+    </script>
+
+  ** ตัวเลข 60000 = refresh ทุก 60s ปรับให้ตรงกับ SNAPSHOT_INTERVAL ใน config.py
+
+
+── Panel 3 — Gallery (ดูย้อนหลัง) ────────────────────────────────────────────
+  Type: Text panel → HTML mode
+  วาง:
+
+    <div id="g" style="display:grid;
+                       grid-template-columns:repeat(auto-fill,minmax(160px,1fr));
+                       gap:6px;background:#111;padding:4px;"></div>
+    <script>
+      function load(){
+        fetch('http://<HOST>:5000/api/snapshots?limit=10')
+          .then(r=>r.json())
+          .then(data=>{
+            document.getElementById('g').innerHTML=data.map(s=>
+              '<div style="background:#1a1a1a;border:1px solid #222;border-radius:4px;overflow:hidden;">'
+              +'<a href="'+s.url+'" target="_blank">'
+              +'<img src="'+s.url+'" loading="lazy"'
+              +' style="width:100%;aspect-ratio:4/3;object-fit:cover;display:block;"></a>'
+              +'<div style="padding:4px 6px;font-size:10px;color:#555;font-family:monospace;">'
+              +s.timestamp+'</div></div>'
+            ).join('');
+          });
+      }
+      load();
+      setInterval(load, 60000);
+    </script>
+
+  ** เปลี่ยน limit=10 เป็นจำนวนภาพที่ต้องการ
+
+
+── Embed pages (เปิดผ่าน browser ตรงๆ ได้) ────────────────────────────────────
+  http://<HOST>:5000/embed/stream
+  http://<HOST>:5000/embed/snapshot
+  http://<HOST>:5000/embed/gallery?limit=10
+
+
+── Other endpoints ────────────────────────────────────────────────────────────
+  /latest                latest snapshot image (JPEG)
+  /video_feed            MJPEG live stream
+  /snapshots/<file>      serve specific snapshot file
+  /api/snapshots?limit=N JSON list of snapshots
+  /api/status            camera status + total count
+
+
+── Change snapshot interval ───────────────────────────────────────────────────
+  Edit config.py → SNAPSHOT_INTERVAL = 600  (10 min) หรือ 900 (15 min)
+  Restart app.py หลังแก้
