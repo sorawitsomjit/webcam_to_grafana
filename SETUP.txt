@@ -1,0 +1,141 @@
+================================================================
+  WEBCAM TO GRAFANA — คู่มือติดตั้งเครื่องใหม่
+================================================================
+
+สิ่งที่ต้องมีก่อน
+-----------------
+  - Python 3.8 ขึ้นไป   https://www.python.org/downloads/
+  - Git                  https://git-scm.com/downloads
+  - Webcam ที่ต่ออยู่กับเครื่อง
+
+
+================================================================
+  STEP 1 — Clone โปรเจกต์
+================================================================
+
+  git clone https://github.com/sorawitsomjit/webcam_to_grafana.git
+  cd webcam_to_grafana
+
+
+================================================================
+  STEP 2 — สร้าง Virtual Environment และติดตั้ง packages
+================================================================
+
+  Windows:
+    python -m venv venv
+    .\venv\Scripts\activate
+    pip install -r requirements.txt
+
+  Linux / macOS:
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
+
+
+================================================================
+  STEP 3 — ตั้งค่า config.py
+================================================================
+
+  เปิดไฟล์ config.py แล้วแก้ให้ตรงกับเครื่อง:
+
+    CAMERA_INDEX = 0      หมายเลข webcam (0 = กล้องแรก, 1 = กล้องที่สอง)
+                          ถ้าไม่รู้ลองเริ่มที่ 0 ก่อน
+
+    SNAPSHOT_INTERVAL = 60   ความถี่ถ่ายภาพอัตโนมัติ (หน่วย: วินาที)
+                             60  = 1 นาที  (สำหรับทดสอบ)
+                             600 = 10 นาที (production)
+                             900 = 15 นาที (production)
+
+    PORT = 5050           port ของ web server
+                          เปลี่ยนถ้า port นั้นถูกใช้อยู่แล้ว
+
+
+================================================================
+  STEP 4 — รัน Flask App
+================================================================
+
+  Windows:
+    .\venv\Scripts\activate
+    python app.py
+
+  Linux / macOS:
+    source venv/bin/activate
+    python app.py
+
+  หน้าเว็บหลัก:  http://localhost:PORT
+  ตัวอย่าง:      http://localhost:5050
+
+
+================================================================
+  STEP 5 — ตั้งค่า Grafana (Text Panel — HTML mode)
+================================================================
+
+  แทนที่ HOST:PORT ด้วย IP จริงของเครื่องที่รัน app.py
+  ตัวอย่าง: 192.168.44.154:5050
+
+  -- Panel: Stream --
+  วาง HTML นี้ใน Text panel (HTML mode):
+
+    <img src="http://HOST:PORT/video_feed"
+         style="width:100%;display:block;background:#111;">
+
+  -- Panel: Snapshot (ภาพล่าสุด) --
+  วาง HTML นี้ใน Text panel (HTML mode):
+
+    <img src="http://HOST:PORT/latest"
+         style="width:100%;display:block;background:#111;">
+
+  -- Panel: Gallery (ภาพย้อนหลัง 10 ภาพ) --
+  วาง HTML นี้ใน Text panel (HTML mode):
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px;background:#111;padding:4px;">
+      <img src="http://HOST:PORT/snapshot/n/0" style="width:100%;display:block;border-radius:3px;">
+      <img src="http://HOST:PORT/snapshot/n/1" style="width:100%;display:block;border-radius:3px;">
+      <img src="http://HOST:PORT/snapshot/n/2" style="width:100%;display:block;border-radius:3px;">
+      <img src="http://HOST:PORT/snapshot/n/3" style="width:100%;display:block;border-radius:3px;">
+      <img src="http://HOST:PORT/snapshot/n/4" style="width:100%;display:block;border-radius:3px;">
+      <img src="http://HOST:PORT/snapshot/n/5" style="width:100%;display:block;border-radius:3px;">
+      <img src="http://HOST:PORT/snapshot/n/6" style="width:100%;display:block;border-radius:3px;">
+      <img src="http://HOST:PORT/snapshot/n/7" style="width:100%;display:block;border-radius:3px;">
+      <img src="http://HOST:PORT/snapshot/n/8" style="width:100%;display:block;border-radius:3px;">
+      <img src="http://HOST:PORT/snapshot/n/9" style="width:100%;display:block;border-radius:3px;">
+    </div>
+
+  หมายเหตุ: Grafana Snapshot/Gallery จะ refresh ตาม dashboard interval
+            แนะนำตั้ง dashboard auto-refresh ให้ตรงกับ SNAPSHOT_INTERVAL
+
+
+================================================================
+  Endpoints ทั้งหมด
+================================================================
+
+  /                          หน้าเว็บหลัก (stream + gallery)
+  /video_feed                MJPEG live stream
+  /latest                    ภาพล่าสุด (JPEG)
+  /snapshot/n/<N>            ภาพที่ N (0=ล่าสุด, 1=ก่อนหน้า, ...)
+  /snapshots/<filename>      ไฟล์ภาพตาม filename
+  /api/snapshots?limit=N     JSON list ของ snapshots
+  /api/status                สถานะกล้องและระบบ
+  /embed/stream              หน้า stream สำหรับเปิดใน browser
+  /embed/snapshot            หน้า snapshot สำหรับเปิดใน browser
+  /embed/gallery?limit=N     หน้า gallery สำหรับเปิดใน browser
+
+
+================================================================
+  แก้ปัญหาเบื้องต้น
+================================================================
+
+  กล้องไม่ติด
+    - ลอง CAMERA_INDEX อื่น (0, 1, 2)
+    - ตรวจสอบว่าไม่มีโปรแกรมอื่นใช้กล้องอยู่
+
+  Port ใช้ไม่ได้
+    - เปลี่ยน PORT ใน config.py (เช่น 5050, 8080, 8888)
+    - รัน app.py ใหม่หลังแก้
+
+  Grafana ไม่แสดงภาพ
+    - ตรวจสอบ IP และ PORT ใน HTML snippet
+    - ตรวจสอบว่า app.py รันอยู่
+    - Text panel ต้องเปิด HTML mode (disable_sanitize_html = true ใน grafana.ini)
+
+================================================================
