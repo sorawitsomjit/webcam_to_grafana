@@ -237,7 +237,23 @@ def add_pressure():
         value = float(body["value"])
     except (KeyError, ValueError):
         return jsonify({"ok": False, "error": "Invalid value"}), 400
-    entry = {"time": body.get("time", ""), "value": value}
+    cryo_raw = body.get("cryostat", "")
+    try:
+        cryostat = float(cryo_raw) if cryo_raw != "" else None
+    except (ValueError, TypeError):
+        cryostat = None
+    speed_raw = body.get("speed", "")
+    try:
+        speed = float(speed_raw) if speed_raw != "" else None
+    except (ValueError, TypeError):
+        speed = None
+    entry = {
+        "time":     body.get("time", ""),
+        "value":    value,
+        "cryostat": cryostat,
+        "speed":    speed,
+        "note":     str(body.get("note", "")).strip(),
+    }
     with _pressure_lock:
         pressure_store.setdefault(preset, []).append(entry)
         _save_pressure(pressure_store)
