@@ -626,18 +626,26 @@ async function loadData(preset) {
 
 async function switchPreset(name) {
   currentPreset = name;
+  localStorage.setItem('activePreset', name);
   if (!storeCache[name]) await loadData(name);
   renderChart();
 }
 
 async function newPreset() {
   const name = prompt('Preset name:');
-  if (!name||!name.trim()) return;
+  if (!name || !name.trim()) return;
   const t = name.trim();
-  storeCache[t] = []; currentPreset = t;
+  await fetch('/api/pressure/preset', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name: t})
+  });
+  storeCache[t] = [];
+  currentPreset = t;
+  localStorage.setItem('activePreset', t);
   await loadPresets();
   document.getElementById('presetSelect').value = t;
   renderChart();
+  toast('Preset: ' + t);
 }
 
 async function resetPreset() {
@@ -695,6 +703,12 @@ function exportCSV() {
   document.getElementById('timeInput').value=now.toISOString().slice(0,16);
   initChart();
   await loadPresets();
+  // restore last used preset from localStorage
+  const saved = localStorage.getItem('activePreset');
+  if (saved) {
+    const opt = document.querySelector(`#presetSelect option[value="${saved}"]`);
+    if (opt) { currentPreset = saved; document.getElementById('presetSelect').value = saved; }
+  }
   await loadData(currentPreset);
   renderChart();
   document.getElementById('valueInput').addEventListener('keydown',e=>{if(e.key==='Enter')addPoint();});

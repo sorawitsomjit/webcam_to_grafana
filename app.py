@@ -341,6 +341,17 @@ def list_presets():
         return jsonify(sorted(pressure_store.keys()))
 
 
+@app.route("/api/pressure/preset", methods=["POST"])
+def create_preset():
+    name = request.get_json().get("name", "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Name required"}), 400
+    with _pressure_lock:
+        pressure_store.setdefault(name, [])
+        _save_pressure(pressure_store)
+    return jsonify({"ok": True})
+
+
 # ─── Interval config API ─────────────────────────────────────────────────────
 
 @app.route("/api/config/interval", methods=["GET"])
