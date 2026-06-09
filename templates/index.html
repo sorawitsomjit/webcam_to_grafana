@@ -619,8 +619,13 @@ function fmtLabel(dtStr) {
 }
 function fmtVal(v) { return (v!==null&&v!==undefined)?v.toFixed(1):'—'; }
 
+function sortedPts() {
+  const raw = storeCache[currentPreset] || [];
+  return [...raw].sort((a, b) => a.time < b.time ? -1 : a.time > b.time ? 1 : 0);
+}
+
 function renderChart() {
-  const pts = storeCache[currentPreset] || [];
+  const pts = sortedPts();
   chart.data.labels = pts.map(p => fmtLabel(p.time));
   chart.data.datasets[0].data = pts.map(p => p.value ?? null);
   chart.data.datasets[1].data = pts.map(p => p.cryostat ?? null);
@@ -631,14 +636,15 @@ function renderChart() {
 }
 
 function renderTable() {
-  const pts = storeCache[currentPreset] || [];
+  const raw = storeCache[currentPreset] || [];
+  const pts = sortedPts().reverse(); // newest time first in table
   const tbody = document.getElementById('dataTableBody');
   if (!pts.length) {
     tbody.innerHTML='<tr><td colspan="8" style="color:#444;text-align:center;padding:10px;">No data yet</td></tr>';
     return;
   }
-  tbody.innerHTML = pts.slice().reverse().map((p,ri) => {
-    const i = pts.length-1-ri;
+  tbody.innerHTML = pts.map(p => {
+    const i = raw.indexOf(p); // original cache index for delete
     return `<tr>
       <td>${i+1}</td><td>${fmtLabel(p.time)}</td>
       <td class="mono">${fmtVal(p.value)}</td>
