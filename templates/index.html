@@ -595,7 +595,7 @@ function initChart() {
         y:{ type:'logarithmic', position:'left', grid:{color:'#1e1e1e'},
             ticks:{color:'#4a9eff', callback:v=>{
               const e=Math.round(Math.log10(v));
-              return Number.isInteger(Math.log10(v)) ? `1e${e}` : null;
+              return Number.isInteger(Math.log10(v)) ? `1E${e>=0?'+':''}${e}` : null;
             }},
             title:{display:true,text:'Pressure (hPa)',color:'#4a9eff',font:{size:10}} },
         yRight:{ position:'right', ticks:{color:'#66bb6a'}, grid:{drawOnChartArea:false},
@@ -606,7 +606,7 @@ function initChart() {
         tooltip:{callbacks:{label:ctx=>{
           const v=ctx.parsed.y;
           if (v===null) return null;
-          return ctx.dataset.label+': '+(ctx.datasetIndex<2?v.toExponential(2):v.toFixed(2));
+          return ctx.dataset.label+': '+(ctx.datasetIndex<2?v.toExponential(2).toUpperCase():v.toFixed(2));
         }}}
       }
     }
@@ -621,7 +621,7 @@ function fmtLabel(dtStr) {
       +' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
   } catch { return dtStr; }
 }
-function fmtVal(v) { return (v!==null&&v!==undefined)?v.toFixed(1):'—'; }
+function fmtVal(v) { return (v!==null&&v!==undefined)?v.toExponential(2).toUpperCase():'—'; }
 
 function sortedPts() {
   const raw = storeCache[currentPreset] || [];
