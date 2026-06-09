@@ -363,9 +363,16 @@ const SNAP_META = {{ snap_meta | tojson }};
 
 // ── Clock ──────────────────────────────────────────────────────────────────
 (function tick() {
-  document.getElementById('clock').textContent = new Date().toLocaleString('en-GB');
+  document.getElementById('clock').textContent = new Date().toLocaleString('en-GB', {timeZone:'Asia/Bangkok'});
   setTimeout(tick, 1000);
 })();
+
+function nowBangkok() {
+  const d = new Date(new Date().toLocaleString('en-US', {timeZone:'Asia/Bangkok'}));
+  d.setSeconds(0, 0);
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function applyLimit() {
@@ -741,8 +748,7 @@ function exportCSV() {
 }
 
 (async function init() {
-  const now=new Date(); now.setSeconds(0,0);
-  document.getElementById('timeInput').value=now.toISOString().slice(0,16);
+  document.getElementById('timeInput').value=nowBangkok();
   initChart();
   await loadPresets();
   // restore last used preset from localStorage
