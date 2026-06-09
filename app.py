@@ -300,11 +300,17 @@ def add_pressure():
         speed = float(speed_raw) if speed_raw != "" else None
     except (ValueError, TypeError):
         speed = None
+    current_raw = body.get("current", "")
+    try:
+        current = float(current_raw) if current_raw != "" else None
+    except (ValueError, TypeError):
+        current = None
     entry = {
         "time":     body.get("time", ""),
         "value":    value,
         "cryostat": cryostat,
         "speed":    speed,
+        "current":  current,
         "note":     str(body.get("note", "")).strip(),
     }
     with _pressure_lock:

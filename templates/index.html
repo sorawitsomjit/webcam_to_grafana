@@ -266,6 +266,8 @@
           <input type="text" id="cryostatInput" class="mono" placeholder="2.1E-1">
           <label>Speed&nbsp;(rpm)</label>
           <input type="text" id="speedInput" class="mono" placeholder="1500">
+          <label>Drive&nbsp;Current&nbsp;(A)</label>
+          <input type="text" id="currentInput" class="mono" placeholder="0.5" style="grid-column:span 5;">
         </div>
         <div class="note-row">
           <label>Note</label>
@@ -275,7 +277,7 @@
         <div class="data-table-wrap">
           <table>
             <thead>
-              <tr><th>#</th><th>Time</th><th>Pump (hPa)</th><th>Cryostat (hPa)</th><th>Speed (rpm)</th><th>Note</th><th></th></tr>
+              <tr><th>#</th><th>Time</th><th>Pump (hPa)</th><th>Cryostat (hPa)</th><th>Speed (rpm)</th><th>Drive Current (A)</th><th>Note</th><th></th></tr>
             </thead>
             <tbody id="dataTableBody"></tbody>
           </table>
@@ -578,9 +580,11 @@ function initChart() {
     data: {
       datasets: [
         { label:'Pump (hPa)', data:[], borderColor:'#4a9eff', backgroundColor:'rgba(74,158,255,.08)',
-          pointBackgroundColor:'#4a9eff', pointRadius:4, tension:0.25 },
+          pointBackgroundColor:'#4a9eff', pointRadius:4, tension:0.25, yAxisID:'y' },
         { label:'Cryostat (hPa)', data:[], borderColor:'#ff9a3c', backgroundColor:'rgba(255,154,60,.08)',
-          pointBackgroundColor:'#ff9a3c', pointRadius:4, tension:0.25 },
+          pointBackgroundColor:'#ff9a3c', pointRadius:4, tension:0.25, yAxisID:'y' },
+        { label:'Drive Current (A)', data:[], borderColor:'#66bb6a', backgroundColor:'rgba(102,187,106,.08)',
+          pointBackgroundColor:'#66bb6a', pointRadius:4, tension:0.25, yAxisID:'yLeft' },
       ]
     },
     options: {
@@ -588,13 +592,17 @@ function initChart() {
       interaction:{ mode:'index', intersect:false },
       scales:{
         x:{ ticks:{maxTicksLimit:7,maxRotation:30,color:'#555'}, grid:{color:'#1e1e1e'} },
-        y:{ ticks:{callback:v=>v.toExponential(1),color:'#555'}, grid:{color:'#1e1e1e'} }
+        y:{ position:'right', ticks:{callback:v=>v.toExponential(1),color:'#4a9eff'}, grid:{color:'#1e1e1e'},
+            title:{display:true,text:'Pressure (hPa)',color:'#4a9eff',font:{size:10}} },
+        yLeft:{ position:'left', ticks:{color:'#66bb6a'}, grid:{drawOnChartArea:false},
+                title:{display:true,text:'Current (A)',color:'#66bb6a',font:{size:10}} }
       },
       plugins:{
-        legend:{display:false},
+        legend:{display:true, labels:{color:'#888', boxWidth:12, font:{size:11}}},
         tooltip:{callbacks:{label:ctx=>{
           const v=ctx.parsed.y;
-          return ctx.dataset.label+': '+(v!==null?v.toExponential(3):'—');
+          if (v===null) return null;
+          return ctx.dataset.label+': '+(ctx.datasetIndex<2?v.toExponential(3):v.toFixed(3));
         }}}
       }
     }
@@ -616,6 +624,7 @@ function renderChart() {
   chart.data.labels = pts.map(p => fmtLabel(p.time));
   chart.data.datasets[0].data = pts.map(p => p.value ?? null);
   chart.data.datasets[1].data = pts.map(p => p.cryostat ?? null);
+  chart.data.datasets[2].data = pts.map(p => p.current ?? null);
   chart.update();
   document.getElementById('preset-label').textContent = currentPreset;
   renderTable();
@@ -625,7 +634,7 @@ function renderTable() {
   const pts = storeCache[currentPreset] || [];
   const tbody = document.getElementById('dataTableBody');
   if (!pts.length) {
-    tbody.innerHTML='<tr><td colspan="7" style="color:#444;text-align:center;padding:10px;">No data yet</td></tr>';
+    tbody.innerHTML='<tr><td colspan="8" style="color:#444;text-align:center;padding:10px;">No data yet</td></tr>';
     return;
   }
   tbody.innerHTML = pts.slice().reverse().map((p,ri) => {
@@ -635,6 +644,7 @@ function renderTable() {
       <td class="mono">${fmtVal(p.value)}</td>
       <td class="mono">${fmtVal(p.cryostat)}</td>
       <td class="mono">${p.speed??'—'}</td>
+      <td class="mono">${p.current!=null?p.current.toFixed(3):'—'}</td>
       <td class="note-cell" title="${(p.note||'').replace(/"/g,'&quot;')}">${p.note||''}</td>
       <td><button class="del-btn" onclick="deletePoint(${i})">✕</button></td>
     </tr>`;
@@ -729,6 +739,7 @@ async function addPoint() {
   const valStr=document.getElementById('valueInput').value.trim();
   const cryoStr=document.getElementById('cryostatInput').value.trim();
   const speedStr=document.getElementById('speedInput').value.trim();
+  const currStr=document.getElementById('currentInput').value.trim();
   const note=document.getElementById('noteInput').value.trim();
   const timeStr=document.getElementById('timeInput').value;
   if (!valStr){toast('กรอกค่า Pump ก่อน',false);return;}
@@ -736,14 +747,15 @@ async function addPoint() {
   const value=parseFloat(valStr);
   if (isNaN(value)){toast('Pump: รูปแบบไม่ถูกต้อง เช่น 3.4E+0',false);return;}
   const r=await fetch('/api/pressure',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({preset:currentPreset,time:timeStr,value,cryostat:cryoStr,speed:speedStr,note})});
+    body:JSON.stringify({preset:currentPreset,time:timeStr,value,cryostat:cryoStr,speed:speedStr,current:currStr,note})});
   const d=await r.json();
   if (d.ok) {
     storeCache[currentPreset].push({time:timeStr,value,
       cryostat:cryoStr!==''?parseFloat(cryoStr):null,
-      speed:speedStr!==''?parseFloat(speedStr):null,note});
+      speed:speedStr!==''?parseFloat(speedStr):null,
+      current:currStr!==''?parseFloat(currStr):null,note});
     renderChart();
-    ['valueInput','cryostatInput','speedInput','noteInput'].forEach(id=>document.getElementById(id).value='');
+    ['valueInput','cryostatInput','speedInput','currentInput','noteInput'].forEach(id=>document.getElementById(id).value='');
     resetTimeNow();
     toast('Added');
   }
@@ -759,8 +771,8 @@ async function deletePoint(index) {
 function exportCSV() {
   const pts=storeCache[currentPreset]||[];
   if (!pts.length){toast('ไม่มีข้อมูลให้ export',false);return;}
-  const header='time,pump_hPa,cryostat_hPa,speed_rpm,note';
-  const rows=pts.map(p=>[p.time,p.value??'',p.cryostat??'',p.speed??'','"'+(p.note||'').replace(/"/g,'""')+'"'].join(','));
+  const header='time,pump_hPa,cryostat_hPa,speed_rpm,drive_current_A,note';
+  const rows=pts.map(p=>[p.time,p.value??'',p.cryostat??'',p.speed??'',p.current??'','"'+(p.note||'').replace(/"/g,'""')+'"'].join(','));
   const blob=new Blob(['﻿'+[header,...rows].join('\r\n')],{type:'text/csv;charset=utf-8;'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
