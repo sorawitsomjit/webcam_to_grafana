@@ -258,7 +258,8 @@
         </div>
         <div class="input-grid">
           <label>Time</label>
-          <input type="datetime-local" id="timeInput" step="1" style="grid-column:span 5;">
+          <input type="datetime-local" id="timeInput" step="1" style="grid-column:span 4;">
+          <button class="btn btn-sm" id="nowBtn" onclick="resetTimeNow()" title="Reset to current time">Now</button>
           <label>Pump&nbsp;(hPa)</label>
           <input type="text" id="valueInput" class="mono" placeholder="3.4E+0">
           <label>Cryostat&nbsp;(hPa)</label>
@@ -373,6 +374,26 @@ function nowBangkok() {
   const p = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
+
+// realtime time input — stops when user edits, resumes with Now button
+let timeAutoUpdate = true;
+setInterval(() => {
+  if (!timeAutoUpdate) return;
+  document.getElementById('timeInput').value = nowBangkok();
+}, 1000);
+
+function resetTimeNow() {
+  timeAutoUpdate = true;
+  document.getElementById('timeInput').value = nowBangkok();
+  document.getElementById('nowBtn').style.color = '';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('timeInput').addEventListener('focus', () => {
+    timeAutoUpdate = false;
+    document.getElementById('nowBtn').style.color = '#f5a623';
+  });
+});
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function applyLimit() {
@@ -723,6 +744,7 @@ async function addPoint() {
       speed:speedStr!==''?parseFloat(speedStr):null,note});
     renderChart();
     ['valueInput','cryostatInput','speedInput','noteInput'].forEach(id=>document.getElementById(id).value='');
+    resetTimeNow();
     toast('Added');
   }
 }
