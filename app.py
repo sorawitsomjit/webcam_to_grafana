@@ -352,6 +352,38 @@ def create_preset():
     return jsonify({"ok": True})
 
 
+@app.route("/api/pressure/preset/rename", methods=["POST"])
+def rename_preset():
+    body = request.get_json()
+    old = body.get("old_name", "").strip()
+    new = body.get("new_name", "").strip()
+    if not old or not new:
+        return jsonify({"ok": False, "error": "Name required"}), 400
+    if old == new:
+        return jsonify({"ok": True})
+    with _pressure_lock:
+        if old not in pressure_store:
+            return jsonify({"ok": False, "error": "Preset not found"}), 404
+        if new in pressure_store:
+            return jsonify({"ok": False, "error": "Name already exists"}), 409
+        pressure_store[new] = pressure_store.pop(old)
+        _save_pressure(pressure_store)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/pressure/preset", methods=["DELETE"])
+def delete_preset():
+    name = request.get_json().get("name", "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Name required"}), 400
+    if name == "default":
+        return jsonify({"ok": False, "error": "Cannot delete default preset"}), 400
+    with _pressure_lock:
+        pressure_store.pop(name, None)
+        _save_pressure(pressure_store)
+    return jsonify({"ok": True})
+
+
 # ─── Interval config API ─────────────────────────────────────────────────────
 
 @app.route("/api/config/interval", methods=["GET"])

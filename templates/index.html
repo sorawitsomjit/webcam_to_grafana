@@ -251,6 +251,8 @@
           <label>Preset:</label>
           <select id="presetSelect" onchange="switchPreset(this.value)" style="flex:1;min-width:110px;"></select>
           <button class="btn btn-sm" onclick="newPreset()">+ New</button>
+          <button class="btn btn-sm" onclick="renamePreset()">Rename</button>
+          <button class="btn btn-sm btn-red" onclick="deletePreset()">Delete</button>
           <button class="btn btn-sm btn-teal" onclick="exportCSV()">&#8681; CSV</button>
           <button class="btn btn-sm btn-red" onclick="resetPreset()">Reset</button>
         </div>
@@ -646,6 +648,46 @@ async function newPreset() {
   document.getElementById('presetSelect').value = t;
   renderChart();
   toast('Preset: ' + t);
+}
+
+async function renamePreset() {
+  const old = currentPreset;
+  const newName = prompt('New name for "' + old + '":');
+  if (!newName || !newName.trim() || newName.trim() === old) return;
+  const t = newName.trim();
+  const r = await fetch('/api/pressure/preset/rename', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({old_name: old, new_name: t})
+  });
+  const res = await r.json();
+  if (!res.ok) { alert('Error: ' + res.error); return; }
+  storeCache[t] = storeCache[old];
+  delete storeCache[old];
+  currentPreset = t;
+  localStorage.setItem('activePreset', t);
+  await loadPresets();
+  document.getElementById('presetSelect').value = t;
+  toast('Renamed → ' + t);
+}
+
+async function deletePreset() {
+  if (currentPreset === 'default') { alert('Cannot delete default preset'); return; }
+  if (!confirm('Delete preset "' + currentPreset + '"? This removes all its data.')) return;
+  const name = currentPreset;
+  const r = await fetch('/api/pressure/preset', {
+    method: 'DELETE', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name: name})
+  });
+  const res = await r.json();
+  if (!res.ok) { alert('Error: ' + res.error); return; }
+  delete storeCache[name];
+  currentPreset = 'default';
+  localStorage.setItem('activePreset', 'default');
+  await loadPresets();
+  document.getElementById('presetSelect').value = 'default';
+  await loadData('default');
+  renderChart();
+  toast('Deleted: ' + name);
 }
 
 async function resetPreset() {
