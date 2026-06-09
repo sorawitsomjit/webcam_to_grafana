@@ -51,88 +51,92 @@
     width: 100%; height: 220px; display: flex; align-items: center;
     justify-content: center; color: #444; font-size: .9rem;
   }
-  .controls { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+
+  /* ── Interval control ── */
+  .interval-bar {
+    display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap;
+  }
+  .interval-bar label { font-size: .74rem; color: #666; white-space: nowrap; }
+  .iv-btn {
+    background: #1e1e1e; color: #999; border: 1px solid #333;
+    padding: 4px 11px; border-radius: 4px; cursor: pointer; font-size: .78rem;
+    transition: all .15s; white-space: nowrap;
+  }
+  .iv-btn:hover { background: #2a2a2a; color: #ddd; }
+  .iv-btn.active { background: #1a237e; border-color: #3949ab; color: #fff; }
+  .iv-custom { display: flex; gap: 5px; align-items: center; }
+  .iv-custom input {
+    width: 60px; background: #1e1e1e; border: 1px solid #333; color: #ccc;
+    padding: 4px 8px; border-radius: 4px; font-size: .78rem;
+  }
+  .iv-custom input:focus { outline: none; border-color: #3949ab; }
+  .countdown { font-size: .74rem; color: #555; white-space: nowrap; margin-left: 4px; }
+  .countdown span { color: #888; font-family: monospace; }
+
+  .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
   .info-tag { font-size: .75rem; color: #555; }
 
   /* ── Buttons ── */
   .btn {
     background: #1a237e; color: #fff; border: none; padding: 7px 16px;
-    border-radius: 5px; cursor: pointer; font-size: .82rem; transition: background .15s;
-    white-space: nowrap;
+    border-radius: 5px; cursor: pointer; font-size: .82rem; transition: background .15s; white-space: nowrap;
   }
   .btn:hover { background: #283593; }
-  .btn-green { background: #1b5e20; }
-  .btn-green:hover { background: #256427; }
-  .btn-red   { background: #7f0000; }
-  .btn-red:hover { background: #b71c1c; }
-  .btn-teal  { background: #004d40; }
-  .btn-teal:hover { background: #00695c; }
+  .btn-green { background: #1b5e20; } .btn-green:hover { background: #256427; }
+  .btn-red   { background: #7f0000; } .btn-red:hover   { background: #b71c1c; }
+  .btn-teal  { background: #004d40; } .btn-teal:hover  { background: #00695c; }
   .btn-sm { padding: 4px 11px; font-size: .78rem; }
 
   /* ── Graph panel ── */
-  .graph-panel {
-    background: #1a1a1a; border: 1px solid #262626; border-radius: 6px; padding: 14px;
-  }
+  .graph-panel { background: #1a1a1a; border: 1px solid #262626; border-radius: 6px; padding: 14px; }
   .chart-wrap { position: relative; height: 240px; margin-bottom: 14px; }
-
-  /* ── Legend chips ── */
   .legend { display: flex; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
   .chip { display: flex; align-items: center; gap: 5px; font-size: .72rem; color: #888; }
   .chip-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-
-  /* ── Graph controls ── */
   .graph-controls { display: flex; flex-direction: column; gap: 9px; }
-
-  /* preset row */
   .preset-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .preset-row label { font-size: .75rem; color: #666; white-space: nowrap; }
-
   select {
     background: #1e1e1e; border: 1px solid #333; color: #ccc;
     padding: 5px 10px; border-radius: 4px; font-size: .82rem; cursor: pointer;
   }
   select:focus { outline: none; border-color: #3949ab; }
-
-  /* input rows */
   .input-grid {
-    display: grid;
-    grid-template-columns: auto 1fr auto 1fr auto 1fr;
+    display: grid; grid-template-columns: auto 1fr auto 1fr auto 1fr;
     gap: 6px 8px; align-items: center;
   }
   .input-grid label { font-size: .74rem; color: #666; white-space: nowrap; }
   .note-row { display: flex; align-items: center; gap: 8px; }
   .note-row label { font-size: .74rem; color: #666; white-space: nowrap; }
-
-  input[type="datetime-local"],
-  input[type="text"],
-  input[type="number"] {
+  input[type="datetime-local"], input[type="text"], input[type="number"] {
     background: #1e1e1e; border: 1px solid #333; color: #ccc;
     padding: 5px 10px; border-radius: 4px; font-size: .82rem; width: 100%;
   }
   input:focus { outline: none; border-color: #3949ab; }
   input.mono { font-family: monospace; }
-  .unit { font-size: .74rem; color: #555; white-space: nowrap; }
-
-  /* ── Data table ── */
   .data-table-wrap { max-height: 150px; overflow-y: auto; margin-top: 4px; }
   table { width: 100%; border-collapse: collapse; font-size: .73rem; }
-  th {
-    color: #555; font-weight: 600; padding: 4px 7px; text-align: left;
-    border-bottom: 1px solid #222; position: sticky; top: 0; background: #1a1a1a;
-    white-space: nowrap;
-  }
+  th { color: #555; font-weight: 600; padding: 4px 7px; text-align: left;
+       border-bottom: 1px solid #222; position: sticky; top: 0; background: #1a1a1a; white-space: nowrap; }
   td { color: #888; padding: 4px 7px; border-bottom: 1px solid #1c1c1c; }
   tr:hover td { background: #222; }
   td.mono { font-family: monospace; color: #aaa; }
   td.note-cell { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #777; }
-  .del-btn {
-    background: none; border: none; color: #444; cursor: pointer;
-    font-size: .8rem; padding: 0 3px; transition: color .15s;
-  }
+  .del-btn { background: none; border: none; color: #444; cursor: pointer; font-size: .8rem; padding: 0 3px; transition: color .15s; }
   .del-btn:hover { color: #ef5350; }
 
+  /* ── Filter bar ── */
+  .filter-bar { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 14px; }
+  .filter-bar label { font-size: .75rem; color: #666; }
+  .fbtn {
+    background: #1e1e1e; color: #999; border: 1px solid #333; padding: 3px 11px;
+    border-radius: 4px; cursor: pointer; font-size: .76rem; transition: all .15s;
+  }
+  .fbtn:hover { background: #2a2a2a; color: #ddd; }
+  .fbtn.active { background: #1a237e; border-color: #3949ab; color: #fff; }
+
   /* ── Snap grid ── */
-  .limit-bar { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 14px; }
+  .limit-bar { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 10px; }
   .limit-bar > label { font-size: .75rem; color: #666; }
   .lbtn {
     background: #1e1e1e; color: #999; border: 1px solid #333; padding: 4px 13px;
@@ -142,12 +146,36 @@
   .lbtn.active { background: #1a237e; border-color: #3949ab; color: #fff; }
   .custom-row { display: flex; gap: 6px; align-items: center; }
   .custom-row input { width: 70px; }
+
   .snap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
-  .card { background: #1a1a1a; border: 1px solid #262626; border-radius: 5px; overflow: hidden; transition: border-color .15s; }
+
+  .card {
+    background: #1a1a1a; border: 1px solid #262626; border-radius: 5px;
+    overflow: hidden; transition: border-color .15s; position: relative;
+  }
   .card:hover { border-color: #3a3a3a; }
   .card a { display: block; }
   .card img { width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block; }
-  .card .ts { padding: 6px 8px; font-size: .7rem; color: #666; }
+  .card .ts { padding: 5px 8px; font-size: .7rem; color: #666; }
+
+  /* interval badge */
+  .iv-badge {
+    position: absolute; top: 6px; right: 6px;
+    background: rgba(0,0,0,.7); color: #aaa;
+    font-size: .65rem; padding: 2px 6px; border-radius: 3px;
+    font-family: monospace; pointer-events: none;
+  }
+
+  /* gap divider */
+  .gap-divider {
+    grid-column: 1 / -1;
+    display: flex; align-items: center; gap: 10px;
+    font-size: .72rem; color: #444; margin: 4px 0;
+  }
+  .gap-divider::before, .gap-divider::after {
+    content: ''; flex: 1; height: 1px; background: #222;
+  }
+
   .empty { color: #444; font-size: .85rem; padding: 16px 0; }
 
   /* ── Toast ── */
@@ -186,10 +214,24 @@
         <div class="stream-placeholder">Camera not available</div>
         {% endif %}
       </div>
-      <div class="controls">
+      <div class="controls" style="margin-top:10px;">
         <button class="btn btn-green" onclick="takeSnapshot()">&#128247; Snapshot</button>
-        <span class="info-tag">Auto every {{ interval }}s</span>
         {% if all_snaps %}<span class="info-tag">Last: {{ all_snaps[0]|format_ts }}</span>{% endif %}
+      </div>
+
+      <!-- Interval control -->
+      <div class="interval-bar">
+        <label>Interval:</label>
+        {% set presets = [("1m",60),("5m",300),("10m",600),("15m",900),("30m",1800)] %}
+        {% for label, secs in presets %}
+        <button class="iv-btn {% if interval == secs %}active{% endif %}"
+                data-secs="{{ secs }}" onclick="setInterval_({{ secs }})">{{ label }}</button>
+        {% endfor %}
+        <div class="iv-custom">
+          <input type="number" id="customIv" min="5" placeholder="s">
+          <button class="btn btn-sm" onclick="setCustomInterval()">Set</button>
+        </div>
+        <div class="countdown">Next: <span id="countdown">--:--</span></div>
       </div>
     </section>
 
@@ -199,19 +241,12 @@
         Vacuum Pressure
         <span id="preset-label">default</span>
       </div>
-
-      <!-- Chart -->
       <div class="legend">
         <div class="chip"><div class="chip-dot" style="background:#4a9eff;"></div>Pump (hPa)</div>
         <div class="chip"><div class="chip-dot" style="background:#ff9a3c;"></div>Cryostat (hPa)</div>
       </div>
-      <div class="chart-wrap">
-        <canvas id="pressureChart"></canvas>
-      </div>
-
+      <div class="chart-wrap"><canvas id="pressureChart"></canvas></div>
       <div class="graph-controls">
-
-        <!-- Preset + actions -->
         <div class="preset-row">
           <label>Preset:</label>
           <select id="presetSelect" onchange="switchPreset(this.value)" style="flex:1;min-width:110px;"></select>
@@ -219,12 +254,9 @@
           <button class="btn btn-sm btn-teal" onclick="exportCSV()">&#8681; CSV</button>
           <button class="btn btn-sm btn-red" onclick="resetPreset()">Reset</button>
         </div>
-
-        <!-- Input row: Time / Pressure / Cryostat / Speed -->
         <div class="input-grid">
           <label>Time</label>
           <input type="datetime-local" id="timeInput" step="1" style="grid-column:span 5;">
-
           <label>Pump&nbsp;(hPa)</label>
           <input type="text" id="valueInput" class="mono" placeholder="3.4E+0">
           <label>Cryostat&nbsp;(hPa)</label>
@@ -232,74 +264,84 @@
           <label>Speed&nbsp;(rpm)</label>
           <input type="text" id="speedInput" class="mono" placeholder="1500">
         </div>
-
-        <!-- Note row -->
         <div class="note-row">
           <label>Note</label>
           <input type="text" id="noteInput" placeholder="ข้อสังเกต / หมายเหตุ" style="flex:1;">
           <button class="btn btn-green btn-sm" onclick="addPoint()">+ Add</button>
         </div>
-
-        <!-- Table -->
         <div class="data-table-wrap">
           <table>
             <thead>
-              <tr>
-                <th>#</th><th>Time</th><th>Pump (hPa)</th>
-                <th>Cryostat (hPa)</th><th>Speed (rpm)</th>
-                <th>Note</th><th></th>
-              </tr>
+              <tr><th>#</th><th>Time</th><th>Pump (hPa)</th><th>Cryostat (hPa)</th><th>Speed (rpm)</th><th>Note</th><th></th></tr>
             </thead>
             <tbody id="dataTableBody"></tbody>
           </table>
         </div>
-
       </div>
     </section>
-
   </div>
 
   <!-- ── Recent Snapshots ── -->
   <section>
     <div class="sec-title">
-      Recent Snapshots <span>{{ recent|length }} shown</span>
+      Recent Snapshots <span id="recent-count">{{ recent|length }} shown</span>
     </div>
-    <div class="limit-bar">
-      <label>Show:</label>
-      {% for n in [5, 10, 20, 30] %}
-      <a href="/?limit={{ n }}" class="lbtn {% if limit == n %}active{% endif %}">{{ n }}</a>
-      {% endfor %}
-      <div class="custom-row">
-        <input type="number" id="cLimit" placeholder="Custom" min="1" max="9999">
-        <button class="btn btn-sm" onclick="applyLimit()">Go</button>
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+      <div class="limit-bar" style="margin-bottom:0;">
+        <label>Show:</label>
+        {% for n in [5, 10, 20, 30] %}
+        <a href="/?limit={{ n }}" class="lbtn {% if limit == n %}active{% endif %}">{{ n }}</a>
+        {% endfor %}
+        <div class="custom-row">
+          <input type="number" id="cLimit" placeholder="Custom" min="1" max="9999">
+          <button class="btn btn-sm" onclick="applyLimit()">Go</button>
+        </div>
       </div>
+      <div class="filter-bar" id="recent-filter-bar" style="margin-bottom:0;"></div>
     </div>
+
     {% if recent %}
-    <div class="snap-grid">
+    <div class="snap-grid" id="recent-grid">
       {% for snap in recent %}
-      <div class="card">
+      <div class="card"
+           data-ts="{{ snap }}"
+           data-interval="{{ snap_meta.get(snap, {}).get('interval_s', '') }}">
         <a href="/snapshots/{{ snap }}" target="_blank">
           <img src="/snapshots/{{ snap }}" alt="{{ snap }}" loading="lazy">
         </a>
+        {% set iv = snap_meta.get(snap, {}).get('interval_s', None) %}
+        {% if iv %}
+        <div class="iv-badge">{{ (iv // 60)|string + 'm' if iv >= 60 else iv|string + 's' }}</div>
+        {% endif %}
         <div class="ts">{{ snap|format_ts }}</div>
       </div>
       {% endfor %}
     </div>
     {% else %}
-    <p class="empty">No snapshots yet — first auto-snapshot in {{ interval }}s.</p>
+    <p class="empty">No snapshots yet.</p>
     {% endif %}
   </section>
 
   <!-- ── Gallery ── -->
   <section>
-    <div class="sec-title">Gallery — All Snapshots <span>{{ total }} total</span></div>
+    <div class="sec-title">
+      Gallery — All Snapshots <span>{{ total }} total</span>
+    </div>
+    <div class="filter-bar" id="gallery-filter-bar" style="margin-bottom:14px;"></div>
+
     {% if all_snaps %}
-    <div class="snap-grid">
+    <div class="snap-grid" id="gallery-grid">
       {% for snap in all_snaps %}
-      <div class="card">
+      <div class="card"
+           data-ts="{{ snap }}"
+           data-interval="{{ snap_meta.get(snap, {}).get('interval_s', '') }}">
         <a href="/snapshots/{{ snap }}" target="_blank">
           <img src="/snapshots/{{ snap }}" alt="{{ snap }}" loading="lazy">
         </a>
+        {% set iv = snap_meta.get(snap, {}).get('interval_s', None) %}
+        {% if iv %}
+        <div class="iv-badge">{{ (iv // 60)|string + 'm' if iv >= 60 else iv|string + 's' }}</div>
+        {% endif %}
         <div class="ts">{{ snap|format_ts }}</div>
       </div>
       {% endfor %}
@@ -314,20 +356,21 @@
 <div id="toast"></div>
 
 <script>
+// ── Snapshot metadata (passed from server) ─────────────────────────────────
+const SNAP_META = {{ snap_meta | tojson }};
+
 // ── Clock ──────────────────────────────────────────────────────────────────
 (function tick() {
   document.getElementById('clock').textContent = new Date().toLocaleString('en-GB');
   setTimeout(tick, 1000);
 })();
 
-// ── Snapshot helpers ───────────────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────────────
 function applyLimit() {
   const v = parseInt(document.getElementById('cLimit').value);
   if (v > 0) location.href = '/?limit=' + v;
 }
-document.getElementById('cLimit').addEventListener('keydown', e => {
-  if (e.key === 'Enter') applyLimit();
-});
+document.getElementById('cLimit').addEventListener('keydown', e => { if (e.key === 'Enter') applyLimit(); });
 
 function toast(msg, ok = true) {
   const el = document.getElementById('toast');
@@ -344,6 +387,152 @@ async function takeSnapshot() {
   else toast(d.error || 'Failed', false);
 }
 
+// ── Interval control ───────────────────────────────────────────────────────
+let countdownVal = 0;
+let countdownTimer = null;
+
+function ivLabel(s) {
+  return s < 60 ? s + 's' : (s % 60 === 0 ? (s/60) + 'm' : Math.round(s/60) + 'm');
+}
+
+function startCountdown(nextIn) {
+  countdownVal = nextIn;
+  clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    if (countdownVal <= 0) { countdownVal = 0; }
+    else countdownVal--;
+    const m = String(Math.floor(countdownVal / 60)).padStart(2,'0');
+    const s = String(countdownVal % 60).padStart(2,'0');
+    document.getElementById('countdown').textContent = m + ':' + s;
+  }, 1000);
+}
+
+async function setInterval_(secs) {
+  const r = await fetch('/api/config/interval', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({interval_s: secs})
+  });
+  const d = await r.json();
+  if (d.ok) {
+    document.querySelectorAll('.iv-btn').forEach(b => {
+      b.classList.toggle('active', parseInt(b.dataset.secs) === secs);
+    });
+    startCountdown(secs);
+    toast('Interval: ' + ivLabel(secs));
+  }
+}
+
+function setCustomInterval() {
+  const v = parseInt(document.getElementById('customIv').value);
+  if (v >= 5) setInterval_(v);
+  else toast('Minimum 5s', false);
+}
+
+document.getElementById('customIv').addEventListener('keydown', e => {
+  if (e.key === 'Enter') setCustomInterval();
+});
+
+// fetch current interval + next_in on load
+(async function initInterval() {
+  const r = await fetch('/api/config/interval');
+  const d = await r.json();
+  startCountdown(d.next_in);
+  // mark active button if matches preset
+  document.querySelectorAll('.iv-btn').forEach(b => {
+    b.classList.toggle('active', parseInt(b.dataset.secs) === d.interval_s);
+  });
+})();
+
+// ── Gap divider ────────────────────────────────────────────────────────────
+function parseSnapTs(filename) {
+  const m = filename.match(/(\d{8})_(\d{6})/);
+  if (!m) return 0;
+  const s = m[1] + 'T' + m[2].slice(0,2) + ':' + m[2].slice(2,4) + ':' + m[2].slice(4,6);
+  return new Date(s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8)+'T'+s.slice(9)).getTime();
+}
+
+function formatGap(ms) {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60), r = s % 60;
+  if (m < 60) return m + 'm' + (r ? ' ' + r + 's' : '');
+  const h = Math.floor(m / 60), rm = m % 60;
+  return h + 'h' + (rm ? ' ' + rm + 'm' : '');
+}
+
+function insertGapDividers(gridId) {
+  const grid = document.getElementById(gridId);
+  if (!grid) return;
+  // remove old dividers
+  grid.querySelectorAll('.gap-divider').forEach(d => d.remove());
+
+  const cards = Array.from(grid.querySelectorAll('.card[data-ts]'))
+                      .filter(c => c.style.display !== 'none');
+  if (cards.length < 2) return;
+
+  const times = cards.map(c => parseSnapTs(c.dataset.ts));
+  // newest-first, so times decrease — gaps are positive
+  const gaps = times.slice(0, -1).map((t, i) => t - times[i + 1]);
+  const sorted = [...gaps].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)] || 0;
+  const threshold = Math.max(median * 3, 3 * 60 * 1000); // 3x median or 3 min
+
+  for (let i = 0; i < gaps.length; i++) {
+    if (gaps[i] >= threshold) {
+      const div = document.createElement('div');
+      div.className = 'gap-divider';
+      div.textContent = formatGap(gaps[i]);
+      cards[i + 1].parentNode.insertBefore(div, cards[i + 1]);
+    }
+  }
+}
+
+// ── Filter bar ─────────────────────────────────────────────────────────────
+function buildFilterBar(gridId, barId) {
+  const grid = document.getElementById(gridId);
+  const bar  = document.getElementById(barId);
+  if (!grid || !bar) return;
+
+  const intervals = new Set();
+  grid.querySelectorAll('.card[data-interval]').forEach(c => {
+    if (c.dataset.interval) intervals.add(parseInt(c.dataset.interval));
+  });
+  if (!intervals.size) return;
+
+  bar.innerHTML = '';
+  const addBtn = (label, value) => {
+    const b = document.createElement('button');
+    b.className = 'fbtn' + (value === 'all' ? ' active' : '');
+    b.textContent = label;
+    b.dataset.filter = value;
+    b.onclick = () => applyFilter(gridId, barId, value);
+    bar.appendChild(b);
+  };
+  addBtn('All', 'all');
+  [...intervals].sort((a,b)=>a-b).forEach(iv => addBtn(ivLabel(iv), String(iv)));
+}
+
+function applyFilter(gridId, barId, value) {
+  const grid = document.getElementById(gridId);
+  const bar  = document.getElementById(barId);
+  bar.querySelectorAll('.fbtn').forEach(b => b.classList.toggle('active', b.dataset.filter === value));
+
+  grid.querySelectorAll('.card').forEach(c => {
+    const show = value === 'all' || c.dataset.interval === value;
+    c.style.display = show ? '' : 'none';
+  });
+
+  // gap dividers: only show when All
+  grid.querySelectorAll('.gap-divider').forEach(d => d.remove());
+  if (value === 'all') insertGapDividers(gridId);
+}
+
+// ── Init grids ─────────────────────────────────────────────────────────────
+insertGapDividers('recent-grid');
+insertGapDividers('gallery-grid');
+buildFilterBar('recent-grid',  'recent-filter-bar');
+buildFilterBar('gallery-grid', 'gallery-filter-bar');
+
 // ── Chart ──────────────────────────────────────────────────────────────────
 let chart;
 let currentPreset = 'default';
@@ -358,45 +547,25 @@ function initChart() {
     type: 'line',
     data: {
       datasets: [
-        {
-          label: 'Pump (hPa)',
-          data: [],
-          borderColor: '#4a9eff',
-          backgroundColor: 'rgba(74,158,255,.08)',
-          pointBackgroundColor: '#4a9eff',
-          pointRadius: 4, tension: 0.25,
-        },
-        {
-          label: 'Cryostat (hPa)',
-          data: [],
-          borderColor: '#ff9a3c',
-          backgroundColor: 'rgba(255,154,60,.08)',
-          pointBackgroundColor: '#ff9a3c',
-          pointRadius: 4, tension: 0.25,
-        },
+        { label:'Pump (hPa)', data:[], borderColor:'#4a9eff', backgroundColor:'rgba(74,158,255,.08)',
+          pointBackgroundColor:'#4a9eff', pointRadius:4, tension:0.25 },
+        { label:'Cryostat (hPa)', data:[], borderColor:'#ff9a3c', backgroundColor:'rgba(255,154,60,.08)',
+          pointBackgroundColor:'#ff9a3c', pointRadius:4, tension:0.25 },
       ]
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      scales: {
-        x: { ticks: { maxTicksLimit: 7, maxRotation: 30, color: '#555' }, grid: { color: '#1e1e1e' } },
-        y: {
-          ticks: { callback: v => v.toExponential(1), color: '#555' },
-          grid: { color: '#1e1e1e' }
-        }
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      scales:{
+        x:{ ticks:{maxTicksLimit:7,maxRotation:30,color:'#555'}, grid:{color:'#1e1e1e'} },
+        y:{ ticks:{callback:v=>v.toExponential(1),color:'#555'}, grid:{color:'#1e1e1e'} }
       },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: ctx => {
-              const v = ctx.parsed.y;
-              return ctx.dataset.label + ': ' + (v !== null ? v.toExponential(3) : '—');
-            }
-          }
-        }
+      plugins:{
+        legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>{
+          const v=ctx.parsed.y;
+          return ctx.dataset.label+': '+(v!==null?v.toExponential(3):'—');
+        }}}
       }
     }
   });
@@ -405,23 +574,16 @@ function initChart() {
 function fmtLabel(dtStr) {
   if (!dtStr) return '';
   try {
-    const d = new Date(dtStr);
-    const dd = String(d.getDate()).padStart(2,'0');
-    const mm = String(d.getMonth()+1).padStart(2,'0');
-    const hh = String(d.getHours()).padStart(2,'0');
-    const mi = String(d.getMinutes()).padStart(2,'0');
-    return dd+'/'+mm+' '+hh+':'+mi;
+    const d=new Date(dtStr);
+    return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')
+      +' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
   } catch { return dtStr; }
 }
-
-function fmtVal(v) {
-  return (v !== null && v !== undefined) ? v.toExponential(3) : '—';
-}
+function fmtVal(v) { return (v!==null&&v!==undefined)?v.toExponential(3):'—'; }
 
 function renderChart() {
   const pts = storeCache[currentPreset] || [];
-  const labels = pts.map(p => fmtLabel(p.time));
-  chart.data.labels = labels;
+  chart.data.labels = pts.map(p => fmtLabel(p.time));
   chart.data.datasets[0].data = pts.map(p => p.value ?? null);
   chart.data.datasets[1].data = pts.map(p => p.cryostat ?? null);
   chart.update();
@@ -433,36 +595,32 @@ function renderTable() {
   const pts = storeCache[currentPreset] || [];
   const tbody = document.getElementById('dataTableBody');
   if (!pts.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="color:#444;text-align:center;padding:10px;">No data yet</td></tr>';
+    tbody.innerHTML='<tr><td colspan="7" style="color:#444;text-align:center;padding:10px;">No data yet</td></tr>';
     return;
   }
-  tbody.innerHTML = pts.slice().reverse().map((p, ri) => {
-    const i = pts.length - 1 - ri;
+  tbody.innerHTML = pts.slice().reverse().map((p,ri) => {
+    const i = pts.length-1-ri;
     return `<tr>
-      <td>${i + 1}</td>
-      <td>${fmtLabel(p.time)}</td>
+      <td>${i+1}</td><td>${fmtLabel(p.time)}</td>
       <td class="mono">${fmtVal(p.value)}</td>
       <td class="mono">${fmtVal(p.cryostat)}</td>
-      <td class="mono">${p.speed !== null && p.speed !== undefined ? p.speed : '—'}</td>
-      <td class="note-cell" title="${(p.note||'').replace(/"/g,'&quot;')}">${p.note || ''}</td>
+      <td class="mono">${p.speed??'—'}</td>
+      <td class="note-cell" title="${(p.note||'').replace(/"/g,'&quot;')}">${p.note||''}</td>
       <td><button class="del-btn" onclick="deletePoint(${i})">✕</button></td>
     </tr>`;
   }).join('');
 }
 
-// ── Preset ─────────────────────────────────────────────────────────────────
 async function loadPresets() {
   const r = await fetch('/api/pressure/presets');
   let presets = await r.json();
-  if (!presets.includes('default')) presets = ['default', ...presets];
+  if (!presets.includes('default')) presets = ['default',...presets];
   const sel = document.getElementById('presetSelect');
-  sel.innerHTML = presets.map(p =>
-    `<option value="${p}" ${p === currentPreset ? 'selected' : ''}>${p}</option>`
-  ).join('');
+  sel.innerHTML = presets.map(p=>`<option value="${p}" ${p===currentPreset?'selected':''}>${p}</option>`).join('');
 }
 
 async function loadData(preset) {
-  const r = await fetch('/api/pressure?preset=' + encodeURIComponent(preset));
+  const r = await fetch('/api/pressure?preset='+encodeURIComponent(preset));
   storeCache[preset] = await r.json();
 }
 
@@ -474,124 +632,73 @@ async function switchPreset(name) {
 
 async function newPreset() {
   const name = prompt('Preset name:');
-  if (!name || !name.trim()) return;
+  if (!name||!name.trim()) return;
   const t = name.trim();
-  storeCache[t] = [];
-  currentPreset = t;
+  storeCache[t] = []; currentPreset = t;
   await loadPresets();
   document.getElementById('presetSelect').value = t;
   renderChart();
 }
 
 async function resetPreset() {
-  if (!confirm('Reset "' + currentPreset + '" — ล้างข้อมูลทั้งหมด?')) return;
-  await fetch('/api/pressure/reset', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ preset: currentPreset })
-  });
-  storeCache[currentPreset] = [];
-  renderChart();
-  toast('Reset: ' + currentPreset);
+  if (!confirm('Reset "'+currentPreset+'" — ล้างข้อมูลทั้งหมด?')) return;
+  await fetch('/api/pressure/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({preset:currentPreset})});
+  storeCache[currentPreset]=[];
+  renderChart(); toast('Reset: '+currentPreset);
 }
 
-// ── Add / Delete ───────────────────────────────────────────────────────────
 async function addPoint() {
-  const valStr   = document.getElementById('valueInput').value.trim();
-  const cryoStr  = document.getElementById('cryostatInput').value.trim();
-  const speedStr = document.getElementById('speedInput').value.trim();
-  const note     = document.getElementById('noteInput').value.trim();
-  const timeStr  = document.getElementById('timeInput').value;
-
-  if (!valStr)  { toast('กรอกค่า Pump ก่อน', false); return; }
-  if (!timeStr) { toast('กรอกเวลาก่อน', false); return; }
-
-  const value = parseFloat(valStr);
-  if (isNaN(value)) { toast('Pump: รูปแบบไม่ถูกต้อง เช่น 3.4E+0', false); return; }
-
-  const body = {
-    preset: currentPreset,
-    time: timeStr,
-    value,
-    cryostat: cryoStr  !== '' ? cryoStr  : '',
-    speed:    speedStr !== '' ? speedStr : '',
-    note,
-  };
-
-  const r = await fetch('/api/pressure', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body)
-  });
-  const d = await r.json();
+  const valStr=document.getElementById('valueInput').value.trim();
+  const cryoStr=document.getElementById('cryostatInput').value.trim();
+  const speedStr=document.getElementById('speedInput').value.trim();
+  const note=document.getElementById('noteInput').value.trim();
+  const timeStr=document.getElementById('timeInput').value;
+  if (!valStr){toast('กรอกค่า Pump ก่อน',false);return;}
+  if (!timeStr){toast('กรอกเวลาก่อน',false);return;}
+  const value=parseFloat(valStr);
+  if (isNaN(value)){toast('Pump: รูปแบบไม่ถูกต้อง เช่น 3.4E+0',false);return;}
+  const r=await fetch('/api/pressure',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({preset:currentPreset,time:timeStr,value,cryostat:cryoStr,speed:speedStr,note})});
+  const d=await r.json();
   if (d.ok) {
-    // update local cache directly (avoid extra fetch)
-    const entry = {
-      time: timeStr, value,
-      cryostat: cryoStr  !== '' ? parseFloat(cryoStr)  : null,
-      speed:    speedStr !== '' ? parseFloat(speedStr) : null,
-      note,
-    };
-    storeCache[currentPreset].push(entry);
+    storeCache[currentPreset].push({time:timeStr,value,
+      cryostat:cryoStr!==''?parseFloat(cryoStr):null,
+      speed:speedStr!==''?parseFloat(speedStr):null,note});
     renderChart();
-    // clear value fields, keep time for convenience
-    ['valueInput','cryostatInput','speedInput','noteInput'].forEach(id =>
-      document.getElementById(id).value = ''
-    );
+    ['valueInput','cryostatInput','speedInput','noteInput'].forEach(id=>document.getElementById(id).value='');
     toast('Added');
   }
 }
 
 async function deletePoint(index) {
-  await fetch('/api/pressure/point', {
-    method: 'DELETE', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ preset: currentPreset, index })
-  });
-  storeCache[currentPreset].splice(index, 1);
+  await fetch('/api/pressure/point',{method:'DELETE',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({preset:currentPreset,index})});
+  storeCache[currentPreset].splice(index,1);
   renderChart();
 }
 
-// ── Export CSV ─────────────────────────────────────────────────────────────
 function exportCSV() {
-  const pts = storeCache[currentPreset] || [];
-  if (!pts.length) { toast('ไม่มีข้อมูลให้ export', false); return; }
-
-  const header = 'time,pump_hPa,cryostat_hPa,speed_rpm,note';
-  const rows = pts.map(p => [
-    p.time,
-    p.value !== null && p.value !== undefined ? p.value : '',
-    p.cryostat !== null && p.cryostat !== undefined ? p.cryostat : '',
-    p.speed   !== null && p.speed   !== undefined ? p.speed   : '',
-    '"' + (p.note || '').replace(/"/g, '""') + '"',
-  ].join(','));
-
-  const csv = [header, ...rows].join('\r\n');
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const date = new Date().toISOString().slice(0,10);
-  a.href = url;
-  a.download = `vacuum_${currentPreset}_${date}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-  toast('Exported: ' + a.download);
+  const pts=storeCache[currentPreset]||[];
+  if (!pts.length){toast('ไม่มีข้อมูลให้ export',false);return;}
+  const header='time,pump_hPa,cryostat_hPa,speed_rpm,note';
+  const rows=pts.map(p=>[p.time,p.value??'',p.cryostat??'',p.speed??'','"'+(p.note||'').replace(/"/g,'""')+'"'].join(','));
+  const blob=new Blob(['﻿'+[header,...rows].join('\r\n')],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=`vacuum_${currentPreset}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+  toast('Exported: '+a.download);
 }
 
-// ── Init ───────────────────────────────────────────────────────────────────
 (async function init() {
-  const now = new Date();
-  now.setSeconds(0, 0);
-  document.getElementById('timeInput').value = now.toISOString().slice(0, 16);
-
+  const now=new Date(); now.setSeconds(0,0);
+  document.getElementById('timeInput').value=now.toISOString().slice(0,16);
   initChart();
   await loadPresets();
   await loadData(currentPreset);
   renderChart();
-
-  document.getElementById('valueInput').addEventListener('keydown', e => {
-    if (e.key === 'Enter') addPoint();
-  });
-  document.getElementById('noteInput').addEventListener('keydown', e => {
-    if (e.key === 'Enter') addPoint();
-  });
+  document.getElementById('valueInput').addEventListener('keydown',e=>{if(e.key==='Enter')addPoint();});
+  document.getElementById('noteInput').addEventListener('keydown',e=>{if(e.key==='Enter')addPoint();});
 })();
 </script>
 

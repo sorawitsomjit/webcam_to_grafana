@@ -57,6 +57,46 @@ class CameraReader:
 camera = CameraReader()
 
 
+# ─── Runtime interval ────────────────────────────────────────────────────────
+
+_current_interval = config.SNAPSHOT_INTERVAL
+_elapsed_since_snap = 0
+_interval_lock_rt = threading.Lock()
+
+
+def get_interval():
+    with _interval_lock_rt:
+        return _current_interval
+
+
+def set_interval(seconds):
+    global _current_interval, _elapsed_since_snap
+    with _interval_lock_rt:
+        _current_interval = int(seconds)
+        _elapsed_since_snap = 0   # reset countdown immediately
+
+
+# ─── Snapshot metadata ────────────────────────────────────────────────────────
+
+_META_FILE = os.path.join(config.BASE_DIR, "snapshots_meta.json")
+_meta_lock = threading.Lock()
+
+
+def _load_meta():
+    if os.path.exists(_META_FILE):
+        with open(_META_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def _save_meta_file(data):
+    with open(_META_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+snap_meta = _load_meta()
+
+
 # ─── Snapshot ────────────────────────────────────────────────────────────────
 
 def take_snapshot():
@@ -67,13 +107,23 @@ def take_snapshot():
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"snapshot_{ts}.jpg"
     cv2.imwrite(os.path.join(config.SNAPSHOT_DIR, filename), frame)
+    with _meta_lock:
+        snap_meta[filename] = {"interval_s": get_interval()}
+        _save_meta_file(snap_meta)
     return filename
 
 
 def _auto_snapshot_loop():
+    global _elapsed_since_snap
     while True:
-        time.sleep(config.SNAPSHOT_INTERVAL)
-        take_snapshot()
+        time.sleep(1)
+        with _interval_lock_rt:
+            _elapsed_since_snap += 1
+            fire = _elapsed_since_snap >= _current_interval
+            if fire:
+                _elapsed_since_snap = 0
+        if fire:
+            take_snapshot()
 
 
 threading.Thread(target=_auto_snapshot_loop, daemon=True).start()
@@ -109,6 +159,8 @@ def index():
     limit = request.args.get("limit", 10, type=int)
     recent = list_snapshots(limit)
     all_snaps = list_snapshots()
+    with _meta_lock:
+        meta = dict(snap_meta)
     return render_template(
         "index.html",
         recent=recent,
@@ -116,7 +168,8 @@ def index():
         limit=limit,
         total=len(all_snaps),
         camera_ok=camera.is_connected(),
-        interval=config.SNAPSHOT_INTERVAL,
+        interval=get_interval(),
+        snap_meta=meta,
     )
 
 
@@ -288,6 +341,35 @@ def list_presets():
         return jsonify(sorted(pressure_store.keys()))
 
 
+# ─── Interval config API ─────────────────────────────────────────────────────
+
+@app.route("/api/config/interval", methods=["GET"])
+def get_interval_api():
+    iv = get_interval()
+    with _interval_lock_rt:
+        elapsed = _elapsed_since_snap
+    return jsonify({"interval_s": iv, "next_in": max(0, iv - elapsed)})
+
+
+@app.route("/api/config/interval", methods=["POST"])
+def set_interval_api():
+    body = request.get_json()
+    try:
+        seconds = int(body["interval_s"])
+        if seconds < 5:
+            return jsonify({"ok": False, "error": "Minimum 5s"}), 400
+    except (KeyError, ValueError, TypeError):
+        return jsonify({"ok": False, "error": "Invalid value"}), 400
+    set_interval(seconds)
+    return jsonify({"ok": True, "interval_s": seconds})
+
+
+@app.route("/api/snapshots/meta")
+def get_snapshots_meta():
+    with _meta_lock:
+        return jsonify(snap_meta)
+
+
 # ─── Grafana Embed Pages ──────────────────────────────────────────────────────
 
 @app.route("/embed/stream")
@@ -301,7 +383,7 @@ def embed_snapshot():
     return render_template(
         "embed_snapshot.html",
         has_snap=len(snaps) > 0,
-        interval_ms=config.SNAPSHOT_INTERVAL * 1000,
+        interval_ms=get_interval() * 1000,
     )
 
 
