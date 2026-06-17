@@ -178,6 +178,17 @@
 
   .empty { color: #444; font-size: .85rem; padding: 16px 0; }
 
+  /* ── LakeShore 336 ── */
+  .badge-connected { background: #1b5e20; color: #a5d6a7; }
+  .ls-last-ts { font-size: .72rem; color: #555; }
+  .metric-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
+  @media (max-width: 600px) { .metric-row { grid-template-columns: 1fr; } }
+  .metric-card { background: #1e1e1e; border: 1px solid #262626; border-radius: 6px; padding: 14px 16px; text-align: center; }
+  .metric-label { font-size: .7rem; color: #555; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px; }
+  .metric-value { font-size: 1.9rem; font-family: monospace; color: #e0e0e0; font-weight: 700; line-height: 1; }
+  .metric-unit { font-size: .75rem; color: #666; margin-top: 5px; }
+  .ls-chart-wrap { position: relative; height: 200px; }
+
   /* ── Toast ── */
   #toast {
     position: fixed; bottom: 20px; right: 20px; color: #fff;
@@ -285,6 +296,35 @@
       </div>
     </section>
   </div>
+
+  <!-- ── LakeShore 336 ── -->
+  <section>
+    <div class="sec-title">
+      LakeShore 336 — FastCCD Camera
+      <span id="ls-badge" class="badge badge-off">● Disconnected</span>
+      <span class="ls-last-ts" id="ls-ts"></span>
+    </div>
+    <div class="metric-row">
+      <div class="metric-card">
+        <div class="metric-label">Temperature A</div>
+        <div class="metric-value" id="ls-temp">—</div>
+        <div class="metric-unit">K</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Heater Output 1</div>
+        <div class="metric-value" id="ls-htr1">—</div>
+        <div class="metric-unit">%</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Heater Output 2</div>
+        <div class="metric-value" id="ls-htr2">—</div>
+        <div class="metric-unit">%</div>
+      </div>
+    </div>
+    <div class="graph-panel">
+      <div class="ls-chart-wrap"><canvas id="tempChart"></canvas></div>
+    </div>
+  </section>
 
   <!-- ── Recent Snapshots ── -->
   <section>
@@ -806,6 +846,82 @@ function exportCSV() {
   document.getElementById('valueInput').addEventListener('keydown',e=>{if(e.key==='Enter')addPoint();});
   document.getElementById('noteInput').addEventListener('keydown',e=>{if(e.key==='Enter')addPoint();});
 })();
+
+// ── LakeShore 336 ─────────────────────────────────────────────────────────
+let lsChart;
+let lsLastTs = null;
+
+function initLsChart() {
+  const ctx = document.getElementById('tempChart').getContext('2d');
+  lsChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Temperature A (K)',
+        data: [],
+        borderColor: '#42a5f5',
+        backgroundColor: 'rgba(66,165,245,.08)',
+        pointBackgroundColor: '#42a5f5',
+        pointRadius: 3,
+        tension: 0.25,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { ticks: { maxTicksLimit: 8, maxRotation: 30, color: '#555' }, grid: { color: '#1e1e1e' } },
+        y: { ticks: { color: '#42a5f5' }, grid: { color: '#1e1e1e' },
+             title: { display: true, text: 'Temperature (K)', color: '#42a5f5', font: { size: 10 } } }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: c => 'Temp: ' + c.parsed.y.toFixed(2) + ' K' } }
+      }
+    }
+  });
+}
+
+function fmtLsTime(ts) {
+  try {
+    const d = new Date(ts);
+    return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  } catch { return ts; }
+}
+
+async function loadLsHistory() {
+  try {
+    const r = await fetch('/api/temperature/history');
+    const pts = await r.json();
+    lsChart.data.labels = pts.map(p => fmtLsTime(p.timestamp));
+    lsChart.data.datasets[0].data = pts.map(p => parseFloat(p.input_a_K) || null);
+    lsChart.update('none');
+  } catch {}
+}
+
+async function pollLsLatest() {
+  try {
+    const r = await fetch('/api/temperature/latest');
+    const d = await r.json();
+    const badge = document.getElementById('ls-badge');
+    const ok = d.status === 'connected';
+    badge.textContent = ok ? '● Connected' : '● Disconnected';
+    badge.className = 'badge ' + (ok ? 'badge-connected' : 'badge-off');
+    if (d.timestamp) {
+      document.getElementById('ls-temp').textContent = d.input_a_K ? parseFloat(d.input_a_K).toFixed(2) : '—';
+      document.getElementById('ls-htr1').textContent = d.htr1_pct  ? parseFloat(d.htr1_pct).toFixed(1)  : '—';
+      document.getElementById('ls-htr2').textContent = d.htr2_pct  ? parseFloat(d.htr2_pct).toFixed(1)  : '—';
+      document.getElementById('ls-ts').textContent = 'Updated: ' + d.timestamp;
+      if (d.timestamp !== lsLastTs) { lsLastTs = d.timestamp; loadLsHistory(); }
+    }
+  } catch {}
+}
+
+initLsChart();
+loadLsHistory();
+pollLsLatest();
+setInterval(pollLsLatest, 10000);
 </script>
 
 </body>

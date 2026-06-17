@@ -1,8 +1,10 @@
+import csv
 import cv2
 import os
 import time
 import threading
 import json
+import serial
 from flask import Flask, Response, render_template, jsonify, send_from_directory, request
 from datetime import datetime
 import config
@@ -55,6 +57,99 @@ class CameraReader:
 
 
 camera = CameraReader()
+
+
+# ─── LakeShore 336 ───────────────────────────────────────────────────────────
+
+class LakeShoreReader:
+    CSV_HEADER = [
+        "timestamp",
+        "input_a_K", "input_a_C", "input_a_raw_ohm", "rdgst_a",
+        "setp1_K", "htr1_pct", "htrst1", "range1",
+        "setp2_K", "htr2_pct", "htrst2", "range2",
+    ]
+
+    def __init__(self):
+        self._latest = None
+        self._lock = threading.Lock()
+        self._connected = False
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    def _query(self, ser, cmd):
+        ser.reset_input_buffer()
+        ser.write((cmd + "\r\n").encode())
+        time.sleep(0.3)
+        n = ser.in_waiting
+        raw = ser.read(n) if n > 0 else b""
+        return bytes(b & 0x7F for b in raw).decode("ascii", errors="replace").strip()
+
+    def _read_all(self, ser):
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        return [
+            ts,
+            self._query(ser, "KRDG? A"),
+            self._query(ser, "CRDG? A"),
+            self._query(ser, "SRDG? A"),
+            self._query(ser, "RDGST? A"),
+            self._query(ser, "SETP? 1"),
+            self._query(ser, "HTR? 1"),
+            self._query(ser, "HTRST? 1"),
+            self._query(ser, "RANGE? 1"),
+            self._query(ser, "SETP? 2"),
+            self._query(ser, "HTR? 2"),
+            self._query(ser, "HTRST? 2"),
+            self._query(ser, "RANGE? 2"),
+        ]
+
+    def _write_csv(self, row):
+        os.makedirs(config.LS336_LOG_DIR, exist_ok=True)
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        path = os.path.join(config.LS336_LOG_DIR, f"lakeshore336_{date_str}.csv")
+        exists = os.path.isfile(path)
+        with open(path, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            if not exists:
+                writer.writerow(self.CSV_HEADER)
+            writer.writerow(row)
+
+    def _loop(self):
+        ser = None
+        while True:
+            if not self._connected:
+                try:
+                    if ser:
+                        ser.close()
+                    ser = serial.Serial(
+                        config.LS336_PORT, config.LS336_BAUD,
+                        bytesize=serial.SEVENBITS,
+                        parity=serial.PARITY_ODD,
+                        stopbits=serial.STOPBITS_ONE,
+                        timeout=2,
+                    )
+                    self._connected = True
+                except Exception:
+                    self._connected = False
+                    time.sleep(30)
+                    continue
+            try:
+                t0 = time.time()
+                row = self._read_all(ser)
+                self._write_csv(row)
+                with self._lock:
+                    self._latest = row
+                time.sleep(max(0, config.LS336_INTERVAL - (time.time() - t0)))
+            except Exception:
+                self._connected = False
+
+    def get_latest(self):
+        with self._lock:
+            return self._latest
+
+    def is_connected(self):
+        return self._connected
+
+
+ls336 = LakeShoreReader()
 
 
 # ─── Runtime interval ────────────────────────────────────────────────────────
@@ -441,6 +536,49 @@ def embed_gallery():
     limit = request.args.get("limit", 10, type=int)
     snaps = list_snapshots(limit)
     return render_template("embed_gallery.html", snaps=snaps, limit=limit)
+
+
+# ─── LakeShore 336 API ───────────────────────────────────────────────────────
+
+@app.route("/api/temperature/latest")
+def temperature_latest():
+    row = ls336.get_latest()
+    connected = ls336.is_connected()
+    if row is None:
+        return jsonify({"status": "disconnected" if not connected else "connected",
+                        "timestamp": None, "input_a_K": None,
+                        "htr1_pct": None, "htr2_pct": None})
+    ts, a_K, a_C, a_ohm, rdgst, setp1, htr1, htrst1, range1, setp2, htr2, htrst2, range2 = row
+    return jsonify({
+        "status": "connected" if connected else "disconnected",
+        "timestamp": ts,
+        "input_a_K": a_K,
+        "htr1_pct": htr1,
+        "htr2_pct": htr2,
+    })
+
+
+@app.route("/api/temperature/history")
+def temperature_history():
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    path = os.path.join(config.LS336_LOG_DIR, f"lakeshore336_{date_str}.csv")
+    if not os.path.exists(path):
+        return jsonify([])
+    rows = []
+    with open(path, encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            rows.append({
+                "timestamp": row.get("timestamp", ""),
+                "input_a_K": row.get("input_a_K", ""),
+                "htr1_pct":  row.get("htr1_pct", ""),
+                "htr2_pct":  row.get("htr2_pct", ""),
+            })
+    return jsonify(rows)
+
+
+@app.route("/embed/temperature")
+def embed_temperature():
+    return render_template("embed_temperature.html", ls_ok=ls336.is_connected())
 
 
 if __name__ == "__main__":
