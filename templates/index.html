@@ -909,7 +909,7 @@ async function pollLsLatest() {
     badge.textContent = ok ? '● Connected' : '● Disconnected';
     badge.className = 'badge ' + (ok ? 'badge-connected' : 'badge-off');
     if (d.timestamp) {
-      document.getElementById('ls-temp').textContent = d.input_a_K ? parseFloat(d.input_a_K).toFixed(2) : '—';
+      document.getElementById('ls-temp').textContent = d.input_a_K ? parseFloat(d.input_a_K).toFixed(3) : '—';
       document.getElementById('ls-htr1').textContent = d.htr1_pct  ? parseFloat(d.htr1_pct).toFixed(1)  : '—';
       document.getElementById('ls-htr2').textContent = d.htr2_pct  ? parseFloat(d.htr2_pct).toFixed(1)  : '—';
       document.getElementById('ls-ts').textContent = 'Updated: ' + d.timestamp;

@@ -55,7 +55,7 @@ const chart = new Chart(ctx, {
     },
     plugins: {
       legend: { display: false },
-      tooltip: { callbacks: { label: c => c.parsed.y.toFixed(2) + ' K' } }
+      tooltip: { callbacks: { label: c => c.parsed.y.toFixed(3) + ' K' } }
     }
   }
 });
@@ -84,7 +84,7 @@ async function refresh() {
     document.getElementById('badge').textContent = ok ? '● Connected' : '● Disconnected';
     document.getElementById('badge').className = 'badge ' + (ok ? 'badge-ok' : 'badge-off');
     if (latest.input_a_K) {
-      document.getElementById('cur').textContent = parseFloat(latest.input_a_K).toFixed(2) + ' K';
+      document.getElementById('cur').textContent = parseFloat(latest.input_a_K).toFixed(3) + ' K';
     }
   } catch {}
 }
