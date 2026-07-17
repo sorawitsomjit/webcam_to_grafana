@@ -5,3 +5,4 @@ __pycache__/
 .env
 pressure_data.json
 snapshots_meta.json
+YOLO_test/logs/

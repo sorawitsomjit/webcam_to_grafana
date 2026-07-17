@@ -1,3 +1,12 @@
 flask>=2.3
 opencv-python>=4.8
 pyserial>=3.5
+
+# YOLO_test/ — LCD text/pressure reading (see YOLO_test/PRESSURE_LCD_READER.md)
+# torch: install CPU-only first to avoid pulling opencv-python-headless in
+# as a transitive dep, e.g.:
+#   pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+ultralytics>=8.4
+huggingface_hub>=1.0
+easyocr>=1.7
+requests>=2.30
