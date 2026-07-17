@@ -8,6 +8,7 @@ import serial
 from flask import Flask, Response, render_template, jsonify, send_from_directory, request
 from datetime import datetime
 import config
+import pressure_ocr
 
 app = Flask(__name__)
 
@@ -150,6 +151,117 @@ class LakeShoreReader:
 
 
 ls336 = LakeShoreReader()
+
+
+# ─── Pressure LCD OCR (YOLO) ─────────────────────────────────────────────────
+# See YOLO_test/PRESSURE_LCD_READER.md for how this pipeline works and why.
+
+class PressureLCDReader:
+    def __init__(self):
+        self._model = pressure_ocr.PressureOCRModel()
+        self._lock = threading.Lock()
+        self._last_accepted_value = None
+        self._status = {
+            "connected": False,
+            "last_attempt_time": None,
+            "last_attempt_value": None,
+            "last_attempt_reason": None,
+            "mode_confirmed": None,
+            "last_accepted_value": None,
+            "last_accepted_time": None,
+        }
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    def _loop(self):
+        cap = None
+        connected = False
+        attempt_num = 0
+        next_attempt_time = 0.0
+
+        while True:
+            if not connected:
+                if cap:
+                    cap.release()
+                cap = cv2.VideoCapture(config.PRESSURE_OCR_CAM_INDEX, cv2.CAP_DSHOW)
+                connected = cap.isOpened()
+                with self._lock:
+                    self._status["connected"] = connected
+                if not connected:
+                    time.sleep(config.PRESSURE_OCR_RECONNECT_DELAY)
+                    continue
+
+            if time.time() < next_attempt_time:
+                time.sleep(0.5)
+                continue
+
+            ret, frame = cap.read()
+            if not ret:
+                connected = False
+                with self._lock:
+                    self._status["connected"] = False
+                continue
+
+            if config.PRESSURE_OCR_ROI:
+                rx, ry, rw, rh = config.PRESSURE_OCR_ROI
+                frame = frame[ry:ry + rh, rx:rx + rw]
+
+            attempt_num += 1
+            ts = datetime.now()
+            try:
+                result = self._model.read_once(frame, conf=0.25)
+            except Exception as e:
+                result = {"value": None, "ocr_conf": 0.0, "det_conf": 0.0,
+                          "mode_confirmed": False, "code_seen": False,
+                          "label_seen": False, "all_texts": [f"error: {e}"]}
+
+            accepted, reason = pressure_ocr.validate_reading(
+                result["value"], result["ocr_conf"], result["mode_confirmed"],
+                self._last_accepted_value,
+                ocr_conf_min=config.PRESSURE_OCR_CONF_MIN,
+                pressure_min=config.PRESSURE_OCR_MIN,
+                pressure_max=config.PRESSURE_OCR_MAX,
+                jump_decades=config.PRESSURE_OCR_JUMP_DECADES)
+
+            pressure_ocr.write_csv_row(config.PRESSURE_OCR_LOG_DIR, "pressure_ocr_raw", pressure_ocr.RAW_HEADER, [
+                ts.strftime("%Y-%m-%d %H:%M:%S"), attempt_num, " | ".join(result["all_texts"]),
+                result["value"] if result["value"] is not None else "",
+                f"{result['ocr_conf']:.2f}", f"{result['det_conf']:.2f}",
+                result["code_seen"], result["label_seen"],
+                "accepted" if accepted else "rejected", reason,
+            ])
+
+            with self._lock:
+                self._status.update({
+                    "last_attempt_time": ts.strftime("%Y-%m-%d %H:%M:%S"),
+                    "last_attempt_value": result["value"],
+                    "last_attempt_reason": reason,
+                    "mode_confirmed": result["mode_confirmed"],
+                })
+
+            if accepted:
+                self._last_accepted_value = result["value"]
+                pressure_ocr.write_csv_row(config.PRESSURE_OCR_LOG_DIR, "pressure_ocr_clean", pressure_ocr.CLEAN_HEADER,
+                    [ts.strftime("%Y-%m-%d %H:%M:%S"), f"{result['value']:.3E}"])
+                _append_pressure_entry(config.PRESSURE_OCR_PRESET, ts.strftime("%Y-%m-%dT%H:%M:%S"),
+                                        result["value"], note="auto:yolo_ocr")
+                with self._lock:
+                    self._status["last_accepted_value"] = result["value"]
+                    self._status["last_accepted_time"] = ts.strftime("%Y-%m-%d %H:%M:%S")
+                attempt_num = 0
+                next_attempt_time = time.time() + config.PRESSURE_OCR_INTERVAL
+            elif attempt_num > config.PRESSURE_OCR_MAX_RETRIES:
+                attempt_num = 0
+                next_attempt_time = time.time() + config.PRESSURE_OCR_INTERVAL
+            else:
+                next_attempt_time = time.time() + config.PRESSURE_OCR_RETRY_DELAY
+
+    def get_status(self):
+        with self._lock:
+            return dict(self._status)
+
+
+# instantiated after _append_pressure_entry()/pressure_store are defined below,
+# since its background thread calls _append_pressure_entry() on accepted reads.
 
 
 # ─── Runtime interval ────────────────────────────────────────────────────────
@@ -368,6 +480,24 @@ def _save_pressure(data):
 
 
 pressure_store = _load_pressure()
+pressure_store.setdefault(config.PRESSURE_OCR_PRESET, [])
+
+
+def _append_pressure_entry(preset, time_str, value, cryostat=None, speed=None, current=None, note=""):
+    entry = {
+        "time":     time_str,
+        "value":    value,
+        "cryostat": cryostat,
+        "speed":    speed,
+        "current":  current,
+        "note":     note,
+    }
+    with _pressure_lock:
+        pressure_store.setdefault(preset, []).append(entry)
+        _save_pressure(pressure_store)
+
+
+pressure_lcd_reader = PressureLCDReader()
 
 
 @app.route("/api/pressure", methods=["GET"])
@@ -400,17 +530,8 @@ def add_pressure():
         current = float(current_raw) if current_raw != "" else None
     except (ValueError, TypeError):
         current = None
-    entry = {
-        "time":     body.get("time", ""),
-        "value":    value,
-        "cryostat": cryostat,
-        "speed":    speed,
-        "current":  current,
-        "note":     str(body.get("note", "")).strip(),
-    }
-    with _pressure_lock:
-        pressure_store.setdefault(preset, []).append(entry)
-        _save_pressure(pressure_store)
+    _append_pressure_entry(preset, body.get("time", ""), value, cryostat, speed, current,
+                            str(body.get("note", "")).strip())
     return jsonify({"ok": True})
 
 
@@ -500,8 +621,8 @@ def set_interval_api():
     body = request.get_json()
     try:
         seconds = int(body["interval_s"])
-        if seconds < 5:
-            return jsonify({"ok": False, "error": "Minimum 5s"}), 400
+        if seconds < 600:
+            return jsonify({"ok": False, "error": "Minimum 10 min (pressure OCR now covers frequent monitoring)"}), 400
     except (KeyError, ValueError, TypeError):
         return jsonify({"ok": False, "error": "Invalid value"}), 400
     set_interval(seconds)
@@ -579,6 +700,18 @@ def temperature_history():
 @app.route("/embed/temperature")
 def embed_temperature():
     return render_template("embed_temperature.html", ls_ok=ls336.is_connected())
+
+
+# ─── Pressure LCD OCR API ────────────────────────────────────────────────────
+
+@app.route("/api/pressure_ocr/status")
+def pressure_ocr_status():
+    return jsonify(pressure_lcd_reader.get_status())
+
+
+@app.route("/embed/pressure_ocr")
+def embed_pressure_ocr():
+    return render_template("embed_pressure_ocr.html")
 
 
 if __name__ == "__main__":

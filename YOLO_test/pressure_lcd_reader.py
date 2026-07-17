@@ -1,8 +1,6 @@
 import argparse
-import csv
-import math
 import os
-import re
+import sys
 import threading
 import time
 import warnings
@@ -15,23 +13,15 @@ os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
 warnings.filterwarnings('ignore')
 
 import cv2
-from huggingface_hub import hf_hub_download
-from ultralytics import YOLO
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from pressure_ocr import (  # noqa: E402
+    PressureOCRModel, parse_pressure, validate_reading,
+    write_csv_row, RAW_HEADER, CLEAN_HEADER,
+)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_DIR = os.path.join(BASE_DIR, 'logs')
-
-# e.g. "6.3E-6" — single-digit mantissa (this LCD's fixed "%.1E" format).
-# Separator is optional/loose because OCR sometimes misreads the dot as a
-# space or underscore.
-PRESSURE_RE = re.compile(r'(\d)[._]?(\d)\s*[eE]\s*([+-]?\d+)')
-
-# Pfeiffer-style vacuum controllers show "<param code>: <name>" alongside the
-# reading (this LCD mockup mimics that: "340: Pressure"). Param code 340 is
-# consistently read at conf 0.94-1.00 in testing, more reliable than the
-# word "Pressure" which OCR sometimes mangles ("Pressurc") — so either one
-# confirming is treated as enough, but both are logged for visibility.
-PRESSURE_CODE_RE = re.compile(r'^340:?$')
 
 GUI_AVAILABLE = True
 try:
@@ -40,10 +30,7 @@ try:
 except cv2.error:
     GUI_AVAILABLE = False
 
-TEXT_MODEL_PATH = hf_hub_download('RoyRud1902/yolo11n-text', 'best.pt')
-TEXT_MODEL = YOLO(TEXT_MODEL_PATH)
-
-reader = None
+model = PressureOCRModel()
 
 det_results = []          # list of (text, det_conf, ocr_conf, (x1,y1,x2,y2)) — for preview
 det_pressure = None       # last parsed value this attempt, regardless of accept/reject
@@ -52,104 +39,6 @@ det_lock = threading.Lock()
 det_thread = None
 
 last_accepted_value = None
-last_accepted_time = None
-
-
-def get_ocr_reader():
-    global reader
-    if reader is None:
-        import easyocr
-        reader = easyocr.Reader(['en'], gpu=False)
-    return reader
-
-
-def parse_pressure(text):
-    m = PRESSURE_RE.search(text.replace(' ', ''))
-    if not m:
-        return None
-    ones, tenths, exponent = m.groups()
-    return float(f"{ones}.{tenths}") * (10 ** int(exponent))
-
-
-def check_mode(texts):
-    code_seen = any(PRESSURE_CODE_RE.match(t.strip()) for t in texts)
-    label_seen = any(t.strip().lower().startswith('pressur') for t in texts)
-    return code_seen, label_seen
-
-
-def validate_reading(value, ocr_conf, mode_confirmed, last_value, args):
-    if value is None:
-        return False, 'no_number_found'
-    if ocr_conf < args.ocr_conf_min:
-        return False, f'low_ocr_conf({ocr_conf:.2f})'
-    if not (args.pressure_min <= value <= args.pressure_max):
-        return False, 'out_of_range'
-    if not mode_confirmed:
-        return False, 'mode_not_confirmed'
-    if last_value is not None and last_value > 0 and value > 0:
-        jump = abs(math.log10(value) - math.log10(last_value))
-        if jump > args.jump_decades:
-            return False, f'implausible_jump({jump:.1f}dec)'
-    return True, 'ok'
-
-
-def merge_nearby_boxes(boxes, x_gap_ratio=0.6, y_overlap_ratio=0.5):
-    """Merge YOLO boxes that sit on the same line and are close together
-    horizontally — a single number is sometimes split into two boxes
-    (e.g. "3" and "5E-5" instead of "3.5E-5"), which breaks OCR+regex
-    if each box is read in isolation."""
-    boxes = list(boxes)
-    used = [False] * len(boxes)
-    merged = []
-    for i in range(len(boxes)):
-        if used[i]:
-            continue
-        x1, y1, x2, y2, conf = boxes[i]
-        cur = [x1, y1, x2, y2]
-        cur_conf = conf
-        used[i] = True
-        changed = True
-        while changed:
-            changed = False
-            for j in range(len(boxes)):
-                if used[j]:
-                    continue
-                bx1, by1, bx2, by2, bconf = boxes[j]
-                overlap = min(cur[3], by2) - max(cur[1], by1)
-                min_h = min(cur[3] - cur[1], by2 - by1)
-                if min_h <= 0 or overlap / min_h < y_overlap_ratio:
-                    continue
-                gap = max(bx1 - cur[2], cur[0] - bx2)
-                height = cur[3] - cur[1]
-                if gap > x_gap_ratio * height:
-                    continue
-                cur[0] = min(cur[0], bx1)
-                cur[1] = min(cur[1], by1)
-                cur[2] = max(cur[2], bx2)
-                cur[3] = max(cur[3], by2)
-                cur_conf = max(cur_conf, bconf)
-                used[j] = True
-                changed = True
-        merged.append((cur[0], cur[1], cur[2], cur[3], cur_conf))
-    return merged
-
-
-def write_csv_row(filename_prefix, header, row):
-    os.makedirs(LOG_DIR, exist_ok=True)
-    date_str = datetime.now().strftime('%Y-%m-%d')
-    path = os.path.join(LOG_DIR, f'{filename_prefix}_{date_str}.csv')
-    exists = os.path.isfile(path)
-    with open(path, 'a', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        if not exists:
-            writer.writerow(header)
-        writer.writerow(row)
-
-
-RAW_HEADER = ['timestamp', 'attempt', 'raw_texts', 'parsed_value',
-              'ocr_conf', 'det_conf', 'code_seen', 'label_seen',
-              'decision', 'reason']
-CLEAN_HEADER = ['timestamp', 'pressure_mbar']
 
 
 def post_to_webapp(args, ts_iso, value):
@@ -168,57 +57,36 @@ def post_to_webapp(args, ts_iso, value):
 
 def attempt_reading(frame, conf, attempt_num, args):
     """One detect+OCR+validate pass. Returns (accepted, value, reason)."""
-    global last_accepted_value, last_accepted_time, det_results, det_pressure, det_status
+    global last_accepted_value, det_results, det_pressure, det_status
 
-    results = TEXT_MODEL(frame, verbose=False, conf=conf)
-    ocr = get_ocr_reader()
-    raw_boxes = [(*map(int, box.xyxy[0]), float(box.conf[0])) for box in results[0].boxes]
-    merged_boxes = merge_nearby_boxes(raw_boxes)
+    result = model.read_once(frame, conf)
+    value, ocr_conf = result['value'], result['ocr_conf']
 
-    boxes_data = []
-    all_texts = []
-    best = None  # (value, ocr_conf, det_conf)
-    for x1, y1, x2, y2, det_conf in merged_boxes:
-        crop = frame[y1:y2, x1:x2]
-        if crop.size == 0:
-            continue
-        hits = ocr.readtext(crop)
-        if not hits:
-            continue
-        text = ' '.join(t for _, t, _ in hits)
-        ocr_conf = min(c for _, _, c in hits)
-        boxes_data.append((text, det_conf, ocr_conf, (x1, y1, x2, y2)))
-        all_texts.append(text)
-        if best is None:
-            value = parse_pressure(text)
-            if value is not None:
-                best = (value, ocr_conf, det_conf)
-
-    code_seen, label_seen = check_mode(all_texts)
-    mode_confirmed = code_seen or label_seen
-    value, ocr_conf, det_conf = best if best else (None, 0.0, 0.0)
-
-    accepted, reason = validate_reading(value, ocr_conf, mode_confirmed, last_accepted_value, args)
+    accepted, reason = validate_reading(
+        value, ocr_conf, result['mode_confirmed'], last_accepted_value,
+        ocr_conf_min=args.ocr_conf_min, pressure_min=args.pressure_min,
+        pressure_max=args.pressure_max, jump_decades=args.jump_decades)
 
     ts = datetime.now()
     ts_str = ts.strftime('%H:%M:%S')
-    print(f"[{ts_str}] Attempt {attempt_num}: value={value}  mode(code={code_seen},label={label_seen})  -> {'ACCEPTED' if accepted else 'rejected: ' + reason}")
+    print(f"[{ts_str}] Attempt {attempt_num}: value={value}  "
+          f"mode(code={result['code_seen']},label={result['label_seen']})  "
+          f"-> {'ACCEPTED' if accepted else 'rejected: ' + reason}")
 
-    write_csv_row('pressure_raw', RAW_HEADER, [
-        ts.strftime('%Y-%m-%d %H:%M:%S'), attempt_num, ' | '.join(all_texts),
-        value if value is not None else '', f'{ocr_conf:.2f}', f'{det_conf:.2f}',
-        code_seen, label_seen, 'accepted' if accepted else 'rejected', reason,
+    write_csv_row(LOG_DIR, 'pressure_raw', RAW_HEADER, [
+        ts.strftime('%Y-%m-%d %H:%M:%S'), attempt_num, ' | '.join(result['all_texts']),
+        value if value is not None else '', f'{ocr_conf:.2f}', f"{result['det_conf']:.2f}",
+        result['code_seen'], result['label_seen'], 'accepted' if accepted else 'rejected', reason,
     ])
 
     if accepted:
         last_accepted_value = value
-        last_accepted_time = ts
-        write_csv_row('pressure_clean', CLEAN_HEADER, [ts.strftime('%Y-%m-%d %H:%M:%S'), f'{value:.3E}'])
+        write_csv_row(LOG_DIR, 'pressure_clean', CLEAN_HEADER, [ts.strftime('%Y-%m-%d %H:%M:%S'), f'{value:.3E}'])
         if args.post:
             post_to_webapp(args, ts.strftime('%Y-%m-%dT%H:%M:%S'), value)
 
     with det_lock:
-        det_results = boxes_data
+        det_results = result['boxes']
         det_pressure = value
         det_status = f"attempt {attempt_num}: {'accepted' if accepted else reason}"
 
@@ -263,7 +131,8 @@ def main():
         print("Warning: GUI not available (headless OpenCV). Switching to headless mode.")
         args.headless = True
 
-    print("Loaded text detection model (yolo11n-text)")
+    print("Loading text detection model (yolo11n-text)...")
+    model.ensure_loaded()
     print(f"Pressure LCD reader started (interval={args.interval}s, camera={args.camera}, post={'ON -> ' + args.api_url if args.post else 'OFF (dry-run)'})")
     print("Press Ctrl+C or 'q' to stop.\n")
 

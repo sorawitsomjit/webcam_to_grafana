@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; background: #111; overflow: hidden; }
+  .wrap { width: 100%; height: 100%; display: flex; flex-direction: column; padding: 10px; font-family: 'Segoe UI', Arial, sans-serif; }
+  .top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .title { font-size: .8rem; color: #888; flex: 1; }
+  .badge { padding: 2px 8px; border-radius: 8px; font-size: .65rem; font-weight: 700; }
+  .badge-ok  { background: #1b5e20; color: #a5d6a7; }
+  .badge-off { background: #333; color: #666; }
+  .badge-warn { background: #5d4a12; color: #ffd54f; }
+  .val { font-family: monospace; font-size: 1.3rem; color: #42a5f5; font-weight: 700; margin-bottom: 10px; }
+  .rows { flex: 1; display: flex; flex-direction: column; gap: 6px; font-size: .75rem; }
+  .row { display: flex; justify-content: space-between; color: #888; }
+  .row span:last-child { color: #ccc; font-family: monospace; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <span class="title">Pressure LCD OCR (YOLO)</span>
+    <span class="badge badge-off" id="badge">● —</span>
+  </div>
+  <div class="val" id="lastAccepted">— mbar</div>
+  <div class="rows">
+    <div class="row"><span>Mode confirmed</span><span id="mode">—</span></div>
+    <div class="row"><span>Last attempt</span><span id="attemptTime">—</span></div>
+    <div class="row"><span>Last attempt value</span><span id="attemptValue">—</span></div>
+    <div class="row"><span>Last attempt result</span><span id="attemptReason">—</span></div>
+    <div class="row"><span>Last accepted at</span><span id="acceptedTime">—</span></div>
+  </div>
+</div>
+<script>
+async function refresh() {
+  try {
+    const r = await fetch('/api/pressure_ocr/status');
+    const s = await r.json();
+
+    document.getElementById('badge').textContent = s.connected ? '● Connected' : '● Disconnected';
+    document.getElementById('badge').className = 'badge ' + (s.connected ? 'badge-ok' : 'badge-off');
+
+    document.getElementById('lastAccepted').textContent =
+      (s.last_accepted_value != null ? Number(s.last_accepted_value).toExponential(3) : '—') + ' mbar';
+
+    const modeEl = document.getElementById('mode');
+    modeEl.textContent = s.mode_confirmed == null ? '—' : (s.mode_confirmed ? 'yes' : 'no');
+    modeEl.style.color = s.mode_confirmed ? '#a5d6a7' : '#ff8a80';
+
+    document.getElementById('attemptTime').textContent = s.last_attempt_time || '—';
+    document.getElementById('attemptValue').textContent =
+      s.last_attempt_value != null ? Number(s.last_attempt_value).toExponential(3) : '—';
+    document.getElementById('attemptReason').textContent = s.last_attempt_reason || '—';
+    document.getElementById('acceptedTime').textContent = s.last_accepted_time || '—';
+  } catch {}
+}
+
+refresh();
+setInterval(refresh, 10000);
+</script>
+</body>
+</html>

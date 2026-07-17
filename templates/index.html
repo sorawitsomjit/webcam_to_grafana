@@ -233,13 +233,13 @@
       <!-- Interval control -->
       <div class="interval-bar">
         <label>Interval:</label>
-        {% set presets = [("1m",60),("5m",300),("10m",600),("15m",900),("30m",1800)] %}
+        {% set presets = [("10m",600),("15m",900),("30m",1800)] %}
         {% for label, secs in presets %}
         <button class="iv-btn {% if interval == secs %}active{% endif %}"
                 data-secs="{{ secs }}" onclick="setInterval_({{ secs }})">{{ label }}</button>
         {% endfor %}
         <div class="iv-custom">
-          <input type="number" id="customIv" min="5" placeholder="s">
+          <input type="number" id="customIv" min="600" placeholder="s">
           <button class="btn btn-sm" onclick="setCustomInterval()">Set</button>
         </div>
         <div class="countdown">Next: <span id="countdown">--:--</span></div>
@@ -323,6 +323,32 @@
     </div>
     <div class="graph-panel">
       <div class="ls-chart-wrap"><canvas id="tempChart"></canvas></div>
+    </div>
+  </section>
+
+  <!-- ── Pressure LCD OCR (YOLO) ── -->
+  <section>
+    <div class="sec-title">
+      Pressure LCD OCR (YOLO)
+      <span id="pocr-badge" class="badge badge-off">● Disconnected</span>
+      <span class="ls-last-ts" id="pocr-ts"></span>
+    </div>
+    <div class="metric-row">
+      <div class="metric-card">
+        <div class="metric-label">Last accepted</div>
+        <div class="metric-value" id="pocr-value">—</div>
+        <div class="metric-unit">mbar</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Mode confirmed</div>
+        <div class="metric-value" id="pocr-mode">—</div>
+        <div class="metric-unit">"340: Pressure" screen</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Last attempt</div>
+        <div class="metric-value" id="pocr-reason" style="font-size:.95rem;">—</div>
+        <div class="metric-unit" id="pocr-attempt-ts">—</div>
+      </div>
     </div>
   </section>
 
@@ -496,8 +522,8 @@ async function setInterval_(secs) {
 
 function setCustomInterval() {
   const v = parseInt(document.getElementById('customIv').value);
-  if (v >= 5) setInterval_(v);
-  else toast('Minimum 5s', false);
+  if (v >= 600) setInterval_(v);
+  else toast('Minimum 10 min (600s)', false);
 }
 
 document.getElementById('customIv').addEventListener('keydown', e => {
@@ -922,6 +948,32 @@ initLsChart();
 loadLsHistory();
 pollLsLatest();
 setInterval(pollLsLatest, 10000);
+
+// ── Pressure LCD OCR (YOLO) ────────────────────────────────────────────────
+async function pollPressureOcr() {
+  try {
+    const r = await fetch('/api/pressure_ocr/status');
+    const d = await r.json();
+    const badge = document.getElementById('pocr-badge');
+    badge.textContent = d.connected ? '● Connected' : '● Disconnected';
+    badge.className = 'badge ' + (d.connected ? 'badge-connected' : 'badge-off');
+
+    document.getElementById('pocr-value').textContent =
+      d.last_accepted_value != null ? Number(d.last_accepted_value).toExponential(3) : '—';
+    document.getElementById('pocr-ts').textContent =
+      d.last_accepted_time ? 'Last accepted: ' + d.last_accepted_time : '';
+
+    const modeEl = document.getElementById('pocr-mode');
+    modeEl.textContent = d.mode_confirmed == null ? '—' : (d.mode_confirmed ? 'yes' : 'no');
+    modeEl.style.color = d.mode_confirmed ? '#a5d6a7' : '#ff8a80';
+
+    document.getElementById('pocr-reason').textContent = d.last_attempt_reason || '—';
+    document.getElementById('pocr-attempt-ts').textContent = d.last_attempt_time || '—';
+  } catch {}
+}
+
+pollPressureOcr();
+setInterval(pollPressureOcr, 10000);
 </script>
 
 </body>
