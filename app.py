@@ -1,6 +1,14 @@
 import csv
-import cv2
+import math
 import os
+
+# A commonly-cited workaround for OpenCV/Windows MSMF "can't grab frame"
+# errors (error -1072875772) seen with VideoCapture.read() from a background
+# thread. Harmless if unrelated to a given failure; must be set before cv2 is
+# imported to have any chance of taking effect.
+os.environ.setdefault("OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS", "0")
+
+import cv2
 import time
 import threading
 import json
@@ -157,10 +165,19 @@ ls336 = LakeShoreReader()
 # See YOLO_test/PRESSURE_LCD_READER.md for how this pipeline works and why.
 
 class PressureLCDReader:
-    def __init__(self):
+    """Shares the single physical camera with CameraReader (pulls frames via
+    camera.get_frame() instead of opening its own cv2.VideoCapture) — there's
+    only one camera on this machine, used for the live stream/snapshots *and*
+    for reading the pump's LCD."""
+
+    def __init__(self, camera_reader):
+        self._camera = camera_reader
         self._model = pressure_ocr.PressureOCRModel()
         self._lock = threading.Lock()
         self._last_accepted_value = None
+        self._jump_candidate_value = None   # tracks a repeated out-of-jump-range reading across cycles
+        self._jump_candidate_count = 0       # to tell "real step change" apart from "one-off misread"
+        self._last_boxes = []          # [(text, det_conf, ocr_conf, (x1,y1,x2,y2))] in full-frame coords, for overlay
         self._status = {
             "connected": False,
             "last_attempt_time": None,
@@ -173,46 +190,41 @@ class PressureLCDReader:
         threading.Thread(target=self._loop, daemon=True).start()
 
     def _loop(self):
-        cap = None
-        connected = False
         attempt_num = 0
         next_attempt_time = 0.0
 
         while True:
+            connected = self._camera.is_connected()
+            with self._lock:
+                self._status["connected"] = connected
             if not connected:
-                if cap:
-                    cap.release()
-                cap = cv2.VideoCapture(config.PRESSURE_OCR_CAM_INDEX, cv2.CAP_DSHOW)
-                connected = cap.isOpened()
-                with self._lock:
-                    self._status["connected"] = connected
-                if not connected:
-                    time.sleep(config.PRESSURE_OCR_RECONNECT_DELAY)
-                    continue
+                time.sleep(1)
+                continue
 
             if time.time() < next_attempt_time:
                 time.sleep(0.5)
                 continue
 
-            ret, frame = cap.read()
-            if not ret:
-                connected = False
-                with self._lock:
-                    self._status["connected"] = False
+            frame = self._camera.get_frame()
+            if frame is None:
+                time.sleep(0.5)
                 continue
 
             if config.PRESSURE_OCR_ROI:
                 rx, ry, rw, rh = config.PRESSURE_OCR_ROI
-                frame = frame[ry:ry + rh, rx:rx + rw]
+                crop = frame[ry:ry + rh, rx:rx + rw]
+            else:
+                rx, ry = 0, 0
+                crop = frame
 
             attempt_num += 1
             ts = datetime.now()
             try:
-                result = self._model.read_once(frame, conf=0.25)
+                result = self._model.read_once(crop, conf=0.25)
             except Exception as e:
                 result = {"value": None, "ocr_conf": 0.0, "det_conf": 0.0,
                           "mode_confirmed": False, "code_seen": False,
-                          "label_seen": False, "all_texts": [f"error: {e}"]}
+                          "label_seen": False, "all_texts": [f"error: {e}"], "boxes": []}
 
             accepted, reason = pressure_ocr.validate_reading(
                 result["value"], result["ocr_conf"], result["mode_confirmed"],
@@ -221,6 +233,25 @@ class PressureLCDReader:
                 pressure_min=config.PRESSURE_OCR_MIN,
                 pressure_max=config.PRESSURE_OCR_MAX,
                 jump_decades=config.PRESSURE_OCR_JUMP_DECADES)
+
+            # A real jump (pump vented/reset) looks identical to a one-off misread on the
+            # first rejected reading. Tell them apart by persistence: if repeated attempts
+            # keep landing on roughly the same "implausible" value, it's not noise — accept
+            # it as the new baseline instead of rejecting forever.
+            if not accepted and reason.startswith("implausible_jump") and result["value"] is not None:
+                value = result["value"]
+                if (self._jump_candidate_value is not None and value > 0
+                        and abs(math.log10(value) - math.log10(self._jump_candidate_value))
+                        <= config.PRESSURE_OCR_JUMP_CONFIRM_TOLERANCE):
+                    self._jump_candidate_count += 1
+                else:
+                    self._jump_candidate_value = value
+                    self._jump_candidate_count = 1
+                if self._jump_candidate_count >= config.PRESSURE_OCR_JUMP_CONFIRM_COUNT:
+                    accepted = True
+                    reason = f"ok (jump confirmed x{self._jump_candidate_count})"
+                    self._jump_candidate_value = None
+                    self._jump_candidate_count = 0
 
             pressure_ocr.write_csv_row(config.PRESSURE_OCR_LOG_DIR, "pressure_ocr_raw", pressure_ocr.RAW_HEADER, [
                 ts.strftime("%Y-%m-%d %H:%M:%S"), attempt_num, " | ".join(result["all_texts"]),
@@ -237,9 +268,16 @@ class PressureLCDReader:
                     "last_attempt_reason": reason,
                     "mode_confirmed": result["mode_confirmed"],
                 })
+                # shift box coords from crop-space back to full-frame-space for overlay drawing
+                self._last_boxes = [
+                    (text, det_conf, ocr_conf, (x1 + rx, y1 + ry, x2 + rx, y2 + ry))
+                    for text, det_conf, ocr_conf, (x1, y1, x2, y2) in result["boxes"]
+                ]
 
             if accepted:
                 self._last_accepted_value = result["value"]
+                self._jump_candidate_value = None
+                self._jump_candidate_count = 0
                 pressure_ocr.write_csv_row(config.PRESSURE_OCR_LOG_DIR, "pressure_ocr_clean", pressure_ocr.CLEAN_HEADER,
                     [ts.strftime("%Y-%m-%d %H:%M:%S"), f"{result['value']:.3E}"])
                 _append_pressure_entry(config.PRESSURE_OCR_PRESET, ts.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -258,6 +296,26 @@ class PressureLCDReader:
     def get_status(self):
         with self._lock:
             return dict(self._status)
+
+    def reset_baseline(self):
+        """Forget the last-accepted value and any pending jump-confirmation,
+        so the next reading is accepted immediately regardless of how far it
+        is from history. Used when starting a fresh logging session."""
+        self._last_accepted_value = None
+        self._jump_candidate_value = None
+        self._jump_candidate_count = 0
+        with self._lock:
+            self._status["last_accepted_value"] = None
+            self._status["last_accepted_time"] = None
+
+    def get_overlay(self):
+        """(boxes, status_line) for drawing onto the live stream. status_line
+        is a short string like 'Pressure: 1.50E-03 mbar' or None."""
+        with self._lock:
+            boxes = list(self._last_boxes)
+            value = self._status["last_accepted_value"]
+        status_line = f"Pressure: {value:.3E} mbar" if value is not None else None
+        return boxes, status_line
 
 
 # instantiated after _append_pressure_entry()/pressure_store are defined below,
@@ -380,10 +438,25 @@ def index():
     )
 
 
+def _draw_pressure_overlay(frame):
+    boxes, status_line = pressure_lcd_reader.get_overlay()
+    for text, det_conf, ocr_conf, (x1, y1, x2, y2) in boxes:
+        is_pressure = pressure_ocr.parse_pressure(text) is not None
+        color = (0, 255, 0) if is_pressure else (0, 200, 255)
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+        cv2.putText(frame, text, (x1, max(0, y1 - 5)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+    if status_line:
+        cv2.putText(frame, status_line, (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+    return frame
+
+
 def _gen_mjpeg():
     while True:
         frame = camera.get_frame()
         if frame is not None:
+            frame = _draw_pressure_overlay(frame)
             ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
             if ok:
                 yield (
@@ -497,7 +570,7 @@ def _append_pressure_entry(preset, time_str, value, cryostat=None, speed=None, c
         _save_pressure(pressure_store)
 
 
-pressure_lcd_reader = PressureLCDReader()
+pressure_lcd_reader = PressureLCDReader(camera)
 
 
 @app.route("/api/pressure", methods=["GET"])
@@ -707,6 +780,24 @@ def embed_temperature():
 @app.route("/api/pressure_ocr/status")
 def pressure_ocr_status():
     return jsonify(pressure_lcd_reader.get_status())
+
+
+@app.route("/api/pressure_ocr/new_session", methods=["POST"])
+def pressure_ocr_new_session():
+    """Archive whatever's currently in the live OCR preset (if non-empty) under
+    a timestamped name and start a fresh empty one — no app restart needed."""
+    preset = config.PRESSURE_OCR_PRESET
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    archived = None
+    with _pressure_lock:
+        existing = pressure_store.get(preset, [])
+        if existing:
+            archived = f"{preset}_{ts}"
+            pressure_store[archived] = existing
+        pressure_store[preset] = []
+        _save_pressure(pressure_store)
+    pressure_lcd_reader.reset_baseline()
+    return jsonify({"ok": True, "archived_as": archived, "active_preset": preset})
 
 
 @app.route("/embed/pressure_ocr")

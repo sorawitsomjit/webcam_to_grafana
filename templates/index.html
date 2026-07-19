@@ -244,6 +244,34 @@
         </div>
         <div class="countdown">Next: <span id="countdown">--:--</span></div>
       </div>
+
+      <!-- Pressure LCD OCR (YOLO) — kept close to the stream it reads from -->
+      <div class="sec-title" style="margin-top:16px;">
+        Pressure LCD OCR (YOLO)
+        <span id="pocr-badge" class="badge badge-off">● Disconnected</span>
+        <span class="ls-last-ts" id="pocr-ts"></span>
+      </div>
+      <div class="metric-row">
+        <div class="metric-card">
+          <div class="metric-label">Last accepted</div>
+          <div class="metric-value" id="pocr-value">—</div>
+          <div class="metric-unit">mbar</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Mode confirmed</div>
+          <div class="metric-value" id="pocr-mode">—</div>
+          <div class="metric-unit">"340: Pressure" screen</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Last attempt</div>
+          <div class="metric-value" id="pocr-reason" style="font-size:.95rem;">—</div>
+          <div class="metric-unit" id="pocr-attempt-ts">—</div>
+        </div>
+      </div>
+      <div class="controls" style="margin-top:8px;">
+        <button class="btn btn-sm" onclick="newOcrSession()">New OCR Session</button>
+        <span class="info-tag">Archives current pressure_yolo data and starts fresh (no restart needed)</span>
+      </div>
     </section>
 
     <!-- Graph -->
@@ -253,8 +281,8 @@
         <span id="preset-label">default</span>
       </div>
       <div class="legend">
-        <div class="chip"><div class="chip-dot" style="background:#4a9eff;"></div>Pump (hPa)</div>
-        <div class="chip"><div class="chip-dot" style="background:#ff9a3c;"></div>Cryostat (hPa)</div>
+        <div class="chip"><div class="chip-dot" style="background:#4a9eff;"></div>Pump (mbar)</div>
+        <div class="chip"><div class="chip-dot" style="background:#ff9a3c;"></div>Cryostat (mbar)</div>
       </div>
       <div class="chart-wrap"><canvas id="pressureChart"></canvas></div>
       <div class="graph-controls">
@@ -271,14 +299,12 @@
           <label>Time</label>
           <input type="datetime-local" id="timeInput" step="1" style="grid-column:span 4;">
           <button class="btn btn-sm" id="nowBtn" onclick="resetTimeNow()" title="Reset to current time">Now</button>
-          <label>Pump&nbsp;(hPa)</label>
+          <label>Pump&nbsp;(mbar)</label>
           <input type="text" id="valueInput" class="mono" placeholder="3.4E+0">
-          <label>Cryostat&nbsp;(hPa)</label>
+          <label>Cryostat&nbsp;(mbar)</label>
           <input type="text" id="cryostatInput" class="mono" placeholder="2.1E-1">
           <label>Speed&nbsp;(rpm)</label>
-          <input type="text" id="speedInput" class="mono" placeholder="1500">
-          <label>Drive&nbsp;Current&nbsp;(A)</label>
-          <input type="text" id="currentInput" class="mono" placeholder="0.5" style="grid-column:span 5;">
+          <input type="text" id="speedInput" class="mono" placeholder="1500" style="grid-column:span 5;">
         </div>
         <div class="note-row">
           <label>Note</label>
@@ -288,7 +314,7 @@
         <div class="data-table-wrap">
           <table>
             <thead>
-              <tr><th>#</th><th>Time</th><th>Pump (hPa)</th><th>Cryostat (hPa)</th><th>Speed (rpm)</th><th>Drive Current (A)</th><th>Note</th><th></th></tr>
+              <tr><th>#</th><th>Time</th><th>Pump (mbar)</th><th>Cryostat (mbar)</th><th>Speed (rpm)</th><th>Note</th><th></th></tr>
             </thead>
             <tbody id="dataTableBody"></tbody>
           </table>
@@ -323,32 +349,6 @@
     </div>
     <div class="graph-panel">
       <div class="ls-chart-wrap"><canvas id="tempChart"></canvas></div>
-    </div>
-  </section>
-
-  <!-- ── Pressure LCD OCR (YOLO) ── -->
-  <section>
-    <div class="sec-title">
-      Pressure LCD OCR (YOLO)
-      <span id="pocr-badge" class="badge badge-off">● Disconnected</span>
-      <span class="ls-last-ts" id="pocr-ts"></span>
-    </div>
-    <div class="metric-row">
-      <div class="metric-card">
-        <div class="metric-label">Last accepted</div>
-        <div class="metric-value" id="pocr-value">—</div>
-        <div class="metric-unit">mbar</div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-label">Mode confirmed</div>
-        <div class="metric-value" id="pocr-mode">—</div>
-        <div class="metric-unit">"340: Pressure" screen</div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-label">Last attempt</div>
-        <div class="metric-value" id="pocr-reason" style="font-size:.95rem;">—</div>
-        <div class="metric-unit" id="pocr-attempt-ts">—</div>
-      </div>
     </div>
   </section>
 
@@ -645,12 +645,10 @@ function initChart() {
     type: 'line',
     data: {
       datasets: [
-        { label:'Pump (hPa)', data:[], borderColor:'#4a9eff', backgroundColor:'rgba(74,158,255,.08)',
+        { label:'Pump (mbar)', data:[], borderColor:'#4a9eff', backgroundColor:'rgba(74,158,255,.08)',
           pointBackgroundColor:'#4a9eff', pointRadius:4, tension:0.25, yAxisID:'y' },
-        { label:'Cryostat (hPa)', data:[], borderColor:'#ff9a3c', backgroundColor:'rgba(255,154,60,.08)',
+        { label:'Cryostat (mbar)', data:[], borderColor:'#ff9a3c', backgroundColor:'rgba(255,154,60,.08)',
           pointBackgroundColor:'#ff9a3c', pointRadius:4, tension:0.25, yAxisID:'y' },
-        { label:'Drive Current (A)', data:[], borderColor:'#66bb6a', backgroundColor:'rgba(102,187,106,.08)',
-          pointBackgroundColor:'#66bb6a', pointRadius:4, tension:0.25, yAxisID:'yRight' },
       ]
     },
     options: {
@@ -663,16 +661,14 @@ function initChart() {
               const e=Math.round(Math.log10(v));
               return Number.isInteger(Math.log10(v)) ? `1E${e>=0?'+':''}${e}` : null;
             }},
-            title:{display:true,text:'Pressure (hPa)',color:'#4a9eff',font:{size:10}} },
-        yRight:{ position:'right', ticks:{color:'#66bb6a'}, grid:{drawOnChartArea:false},
-                 title:{display:true,text:'Current (A)',color:'#66bb6a',font:{size:10}} }
+            title:{display:true,text:'Pressure (mbar)',color:'#4a9eff',font:{size:10}} }
       },
       plugins:{
         legend:{display:true, labels:{color:'#888', boxWidth:12, font:{size:11}}},
         tooltip:{callbacks:{label:ctx=>{
           const v=ctx.parsed.y;
           if (v===null) return null;
-          return ctx.dataset.label+': '+(ctx.datasetIndex<2?v.toExponential(2).toUpperCase():v.toFixed(2));
+          return ctx.dataset.label+': '+v.toExponential(2).toUpperCase();
         }}}
       }
     }
@@ -699,7 +695,6 @@ function renderChart() {
   chart.data.labels = pts.map(p => fmtLabel(p.time));
   chart.data.datasets[0].data = pts.map(p => p.value ?? null);
   chart.data.datasets[1].data = pts.map(p => p.cryostat ?? null);
-  chart.data.datasets[2].data = pts.map(p => p.current ?? null);
   chart.update();
   document.getElementById('preset-label').textContent = currentPreset;
   renderTable();
@@ -710,7 +705,7 @@ function renderTable() {
   const pts = sortedPts().reverse(); // newest time first in table
   const tbody = document.getElementById('dataTableBody');
   if (!pts.length) {
-    tbody.innerHTML='<tr><td colspan="8" style="color:#444;text-align:center;padding:10px;">No data yet</td></tr>';
+    tbody.innerHTML='<tr><td colspan="7" style="color:#444;text-align:center;padding:10px;">No data yet</td></tr>';
     return;
   }
   tbody.innerHTML = pts.map(p => {
@@ -720,7 +715,6 @@ function renderTable() {
       <td class="mono">${fmtVal(p.value)}</td>
       <td class="mono">${fmtVal(p.cryostat)}</td>
       <td class="mono">${p.speed??'—'}</td>
-      <td class="mono">${p.current!=null?p.current.toFixed(2):'—'}</td>
       <td class="note-cell" title="${(p.note||'').replace(/"/g,'&quot;')}">${p.note||''}</td>
       <td><button class="del-btn" onclick="deletePoint(${i})">✕</button></td>
     </tr>`;
@@ -815,7 +809,6 @@ async function addPoint() {
   const valStr=document.getElementById('valueInput').value.trim();
   const cryoStr=document.getElementById('cryostatInput').value.trim();
   const speedStr=document.getElementById('speedInput').value.trim();
-  const currStr=document.getElementById('currentInput').value.trim();
   const note=document.getElementById('noteInput').value.trim();
   const timeStr=document.getElementById('timeInput').value;
   if (!valStr){toast('กรอกค่า Pump ก่อน',false);return;}
@@ -823,15 +816,14 @@ async function addPoint() {
   const value=parseFloat(valStr);
   if (isNaN(value)){toast('Pump: รูปแบบไม่ถูกต้อง เช่น 3.4E+0',false);return;}
   const r=await fetch('/api/pressure',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({preset:currentPreset,time:timeStr,value,cryostat:cryoStr,speed:speedStr,current:currStr,note})});
+    body:JSON.stringify({preset:currentPreset,time:timeStr,value,cryostat:cryoStr,speed:speedStr,note})});
   const d=await r.json();
   if (d.ok) {
     storeCache[currentPreset].push({time:timeStr,value,
       cryostat:cryoStr!==''?parseFloat(cryoStr):null,
-      speed:speedStr!==''?parseFloat(speedStr):null,
-      current:currStr!==''?parseFloat(currStr):null,note});
+      speed:speedStr!==''?parseFloat(speedStr):null,note});
     renderChart();
-    ['valueInput','cryostatInput','speedInput','currentInput','noteInput'].forEach(id=>document.getElementById(id).value='');
+    ['valueInput','cryostatInput','speedInput','noteInput'].forEach(id=>document.getElementById(id).value='');
     resetTimeNow();
     toast('Added');
   }
@@ -847,8 +839,8 @@ async function deletePoint(index) {
 function exportCSV() {
   const pts=storeCache[currentPreset]||[];
   if (!pts.length){toast('ไม่มีข้อมูลให้ export',false);return;}
-  const header='time,pump_hPa,cryostat_hPa,speed_rpm,drive_current_A,note';
-  const rows=pts.map(p=>[p.time,p.value??'',p.cryostat??'',p.speed??'',p.current??'','"'+(p.note||'').replace(/"/g,'""')+'"'].join(','));
+  const header='time,pump_mbar,cryostat_mbar,speed_rpm,note';
+  const rows=pts.map(p=>[p.time,p.value??'',p.cryostat??'',p.speed??'','"'+(p.note||'').replace(/"/g,'""')+'"'].join(','));
   const blob=new Blob(['﻿'+[header,...rows].join('\r\n')],{type:'text/csv;charset=utf-8;'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
@@ -950,6 +942,8 @@ pollLsLatest();
 setInterval(pollLsLatest, 10000);
 
 // ── Pressure LCD OCR (YOLO) ────────────────────────────────────────────────
+// Detection boxes + the reading itself are also drawn directly onto the live
+// stream frame (server-side) — this panel is the detailed status view.
 async function pollPressureOcr() {
   try {
     const r = await fetch('/api/pressure_ocr/status');
@@ -972,8 +966,32 @@ async function pollPressureOcr() {
   } catch {}
 }
 
+async function newOcrSession() {
+  if (!confirm('เริ่ม OCR session ใหม่? (ค่าเดิมใน pressure_yolo จะถูก archive ไปเป็น preset แยก ไม่หาย)')) return;
+  try {
+    const r = await fetch('/api/pressure_ocr/new_session', { method: 'POST' });
+    const d = await r.json();
+    if (!d.ok) { toast('Failed', false); return; }
+    await loadPresets();
+    currentPreset = d.active_preset;
+    document.getElementById('presetSelect').value = currentPreset;
+    await loadData(currentPreset);
+    renderChart();
+    toast(d.archived_as ? 'New session started (archived: ' + d.archived_as + ')' : 'New session started');
+  } catch { toast('Failed', false); }
+}
+
 pollPressureOcr();
 setInterval(pollPressureOcr, 10000);
+
+// ── Auto-refresh the pressure graph so new OCR readings show up live ──────
+async function pollPressureData() {
+  try {
+    await loadData(currentPreset);
+    renderChart();
+  } catch {}
+}
+setInterval(pollPressureData, 20000);
 </script>
 
 </body>
