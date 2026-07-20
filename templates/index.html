@@ -99,6 +99,26 @@
   /* ── Graph panel ── */
   .graph-panel { background: #1a1a1a; border: 1px solid #262626; border-radius: 6px; padding: 14px; }
   .chart-wrap { position: relative; height: 240px; margin-bottom: 14px; }
+  .chart-empty {
+    position: absolute; inset: 0; display: none;
+    align-items: center; justify-content: center;
+    color: #555; font-size: .82rem; pointer-events: none;
+  }
+  .chart-empty.show { display: flex; }
+  .chart-empty a { color: #4a9eff; cursor: pointer; text-decoration: underline; pointer-events: auto; }
+
+  /* time-range / scale toolbar */
+  .chart-toolbar {
+    display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-bottom: 8px;
+  }
+  .chart-toolbar .spacer { flex: 1; }
+  .tbtn {
+    background: #1e1e1e; color: #888; border: 1px solid #2e2e2e; padding: 3px 10px;
+    border-radius: 4px; cursor: pointer; font-size: .74rem; transition: all .15s;
+  }
+  .tbtn:hover { background: #2a2a2a; color: #ddd; }
+  .tbtn.active { background: #1a237e; border-color: #3949ab; color: #fff; }
+  .tbtn-label { font-size: .72rem; color: #555; margin-right: 2px; }
   .legend { display: flex; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
   .chip { display: flex; align-items: center; gap: 5px; font-size: .72rem; color: #888; }
   .chip-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
@@ -307,7 +327,25 @@
         <div class="chip"><div class="chip-dot" style="background:#4a9eff;"></div>Pump (mbar)</div>
         <div class="chip"><div class="chip-dot" style="background:#ff9a3c;"></div>Cryostat (mbar)</div>
       </div>
-      <div class="chart-wrap"><canvas id="pressureChart"></canvas></div>
+      <div class="chart-toolbar">
+        <span class="tbtn-label">Range:</span>
+        <button class="tbtn" data-range="1"   onclick="setRange(1)">1h</button>
+        <button class="tbtn" data-range="6"   onclick="setRange(6)">6h</button>
+        <button class="tbtn" data-range="24"  onclick="setRange(24)">24h</button>
+        <button class="tbtn" data-range="168" onclick="setRange(168)">7d</button>
+        <button class="tbtn" data-range="0"   onclick="setRange(0)">All</button>
+        <span class="spacer"></span>
+        <span class="tbtn-label">Y:</span>
+        <button class="tbtn" data-scale="logarithmic" onclick="setScale('logarithmic')">Log</button>
+        <button class="tbtn" data-scale="linear"      onclick="setScale('linear')">Linear</button>
+        <button class="tbtn" data-scale="auto"        onclick="setScale('auto')">Auto</button>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="pressureChart"></canvas>
+        <div class="chart-empty" id="chartEmpty">
+          <span>No data in this time range<span id="chartEmptyHint"></span></span>
+        </div>
+      </div>
       <div class="graph-controls">
         <div class="preset-row">
           <label>Preset:</label>
@@ -662,40 +700,148 @@ let storeCache = {};
 Chart.defaults.color = '#555';
 Chart.defaults.borderColor = '#1e1e1e';
 
+// Hours of history to show; 0 = everything. Grafana-style fixed windows.
+let rangeHours = 6;
+// 'auto' picks log or linear from how wide the visible data actually spans.
+let scaleMode = 'auto';
+
+// Vertical line following the hovered point. Written inline rather than pulled
+// from a plugin CDN — the dashboard runs on a dome machine whose network isn't
+// guaranteed, so the chart shouldn't depend on a script it may not be able to
+// fetch.
+const crosshairPlugin = {
+  id: 'crosshair',
+  afterDatasetsDraw(c) {
+    const active = c.tooltip && c.tooltip.getActiveElements ? c.tooltip.getActiveElements() : [];
+    if (!active.length) return;
+    const x = active[0].element.x;
+    const ctx = c.ctx;
+    ctx.save();
+    ctx.beginPath();
+    ctx.setLineDash([4, 4]);
+    ctx.moveTo(x, c.chartArea.top);
+    ctx.lineTo(x, c.chartArea.bottom);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#4a9eff66';
+    ctx.stroke();
+    ctx.restore();
+  }
+};
+
+// x.xE+x — the format the pump's own display uses, kept so numbers on the
+// chart read the same as numbers on the LCD.
+function fmtExp(v) {
+  return (v === null || v === undefined) ? '—' : v.toExponential(1).toUpperCase();
+}
+
+// Local time — the browser's Date parses the stored naive timestamps as local
+// already, so formatting via toISOString() here would shift everything by the
+// UTC offset.
+function fmtLocal(ms) {
+  const d = new Date(ms);
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function fmtAxisTime(ms) {
+  const d = new Date(ms);
+  const p = n => String(n).padStart(2, '0');
+  const hm = `${p(d.getHours())}:${p(d.getMinutes())}`;
+  // Once the window is wider than a day, the time alone stops being enough.
+  return rangeHours && rangeHours <= 24 ? hm : `${p(d.getDate())}/${p(d.getMonth() + 1)} ${hm}`;
+}
+
 function initChart() {
   const ctx = document.getElementById('pressureChart').getContext('2d');
   chart = new Chart(ctx, {
     type: 'line',
     data: {
       datasets: [
-        { label:'Pump (mbar)', data:[], borderColor:'#4a9eff', backgroundColor:'rgba(74,158,255,.08)',
-          pointBackgroundColor:'#4a9eff', pointRadius:4, tension:0.25, yAxisID:'y' },
-        { label:'Cryostat (mbar)', data:[], borderColor:'#ff9a3c', backgroundColor:'rgba(255,154,60,.08)',
-          pointBackgroundColor:'#ff9a3c', pointRadius:4, tension:0.25, yAxisID:'y' },
+        { label:'Pump (mbar)', data:[], borderColor:'#4a9eff', backgroundColor:'rgba(74,158,255,.06)',
+          pointBackgroundColor:'#4a9eff', pointRadius:2, pointHoverRadius:5, borderWidth:1.6,
+          tension:0.2, spanGaps:false },
+        { label:'Cryostat (mbar)', data:[], borderColor:'#ff9a3c', backgroundColor:'rgba(255,154,60,.06)',
+          pointBackgroundColor:'#ff9a3c', pointRadius:2, pointHoverRadius:5, borderWidth:1.6,
+          tension:0.2, spanGaps:false },
       ]
     },
     options: {
       responsive:true, maintainAspectRatio:false,
+      animation:false,
       interaction:{ mode:'index', intersect:false },
       scales:{
-        x:{ ticks:{maxTicksLimit:7,maxRotation:30,color:'#555'}, grid:{color:'#1e1e1e'} },
-        y:{ type:'logarithmic', position:'left', grid:{color:'#1e1e1e'},
-            ticks:{color:'#4a9eff', callback:v=>{
-              const e=Math.round(Math.log10(v));
-              return Number.isInteger(Math.log10(v)) ? `1E${e>=0?'+':''}${e}` : null;
-            }},
-            title:{display:true,text:'Pressure (mbar)',color:'#4a9eff',font:{size:10}} }
+        // A real (numeric) time axis, so a three-hour gap in the data looks
+        // like a three-hour gap. The old category axis spaced every point
+        // evenly, which made an outage indistinguishable from normal sampling.
+        // Plain 'linear' over epoch-ms rather than Chart.js's 'time' scale,
+        // which would need a date-adapter script fetched from a CDN.
+        x:{
+          type:'linear',
+          grid:{ color:'#1e1e1e' },
+          ticks:{
+            color:'#555', maxRotation:0, autoSkip:true, maxTicksLimit:8,
+            callback: v => fmtAxisTime(v),
+          },
+        },
+        y:{
+          type:'logarithmic', position:'left',
+          grid:{ color:'#1e1e1e' },
+          ticks:{ color:'#4a9eff', callback: v => fmtExp(v) },
+          title:{ display:true, text:'Pressure (mbar)', color:'#4a9eff', font:{size:10} },
+          // Chart.js's own log ticks are sparse enough that a 12-100 mbar range
+          // only drew 1E+1 and 1E+2. Place them at 1/2/5 per decade instead so
+          // there's something to read against in between — but thin out to whole
+          // decades once the span is wide, or a full pump-down would draw ~28
+          // labels on top of each other. Leaves Chart.js to it when the span is
+          // too narrow to contain any 1/2/5 point at all.
+          afterBuildTicks: (scale) => {
+            if (scale.type !== 'logarithmic') return;
+            const lo = scale.min, hi = scale.max;
+            if (!(lo > 0) || !(hi > 0) || hi <= lo) return;
+            const decades = Math.log10(hi / lo);
+            const mantissas = decades > 4 ? [1] : [1, 2, 5];
+            const step = decades > 4 ? Math.ceil(decades / 8) : 1;
+            const ticks = [];
+            for (let e = Math.floor(Math.log10(lo)); e <= Math.ceil(Math.log10(hi)); e += step) {
+              for (const m of mantissas) {
+                const v = m * Math.pow(10, e);
+                if (v >= lo && v <= hi) ticks.push({ value: v });
+              }
+            }
+            if (ticks.length >= 2) scale.ticks = ticks;
+          },
+        }
       },
       plugins:{
-        legend:{display:true, labels:{color:'#888', boxWidth:12, font:{size:11}}},
-        tooltip:{callbacks:{label:ctx=>{
-          const v=ctx.parsed.y;
-          if (v===null) return null;
-          return ctx.dataset.label+': '+v.toExponential(2).toUpperCase();
-        }}}
+        legend:{ display:true, labels:{color:'#888', boxWidth:12, font:{size:11}, usePointStyle:true} },
+        tooltip:{
+          backgroundColor:'#0d0d0dee', borderColor:'#333', borderWidth:1,
+          titleColor:'#ddd', bodyColor:'#bbb', padding:9, displayColors:true,
+          callbacks:{
+            title: items => {
+              if (!items.length) return '';
+              const d = new Date(items[0].parsed.x);
+              const p = n => String(n).padStart(2, '0');
+              return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} `
+                   + `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+            },
+            label: c => c.parsed.y === null ? null : `${c.dataset.label}: ${fmtExp(c.parsed.y)}`,
+          }
+        }
       }
-    }
+    },
+    plugins: [crosshairPlugin],
   });
+}
+
+function setRange(hours) {
+  rangeHours = hours;
+  renderChart();
+}
+
+function setScale(mode) {
+  scaleMode = mode;
+  renderChart();
 }
 
 function fmtLabel(dtStr) {
@@ -714,11 +860,53 @@ function sortedPts() {
 }
 
 function renderChart() {
-  const pts = sortedPts();
-  chart.data.labels = pts.map(p => fmtLabel(p.time));
-  chart.data.datasets[0].data = pts.map(p => p.value ?? null);
-  chart.data.datasets[1].data = pts.map(p => p.cryostat ?? null);
+  const all = sortedPts()
+    .map(p => ({ t: new Date(p.time).getTime(), v: p.value, c: p.cryostat }))
+    .filter(p => !isNaN(p.t));
+
+  // Fixed window ending now, like a Grafana time picker — not "the last N points".
+  const now = Date.now();
+  const from = rangeHours ? now - rangeHours * 3600e3 : null;
+  const pts = from === null ? all : all.filter(p => p.t >= from);
+
+  chart.data.datasets[0].data = pts.map(p => ({ x: p.t, y: p.v ?? null }));
+  chart.data.datasets[1].data = pts.map(p => ({ x: p.t, y: p.c ?? null }));
+
+  // Pin the axis to the chosen window so an empty stretch reads as "nothing
+  // was logged then" rather than silently rescaling to whatever data exists.
+  if (from === null) {
+    delete chart.options.scales.x.min;
+    delete chart.options.scales.x.max;
+  } else {
+    chart.options.scales.x.min = from;
+    chart.options.scales.x.max = now;
+  }
+
+  const values = pts.flatMap(p => [p.v, p.c]).filter(v => v !== null && v !== undefined && v > 0);
+  let type = scaleMode;
+  if (scaleMode === 'auto') {
+    // A log axis over a narrow span wastes the height; a linear one over
+    // several decades hides everything but the top decade.
+    const span = values.length ? Math.max(...values) / Math.min(...values) : 1;
+    type = span > 20 ? 'logarithmic' : 'linear';
+  }
+  chart.options.scales.y.type = type;
+
   chart.update();
+
+  // An archived preset can easily be older than the window, which otherwise
+  // just looks like a broken chart. Say so, and offer the one click that fixes it.
+  document.getElementById('chartEmpty').classList.toggle('show', pts.length === 0);
+  document.getElementById('chartEmptyHint').innerHTML =
+    (pts.length === 0 && all.length > 0)
+      ? ` — newest point is ${fmtLocal(all[all.length - 1].t)}. `
+        + `<a onclick="setRange(0)">Show all</a>`
+      : '';
+  document.querySelectorAll('.tbtn[data-range]').forEach(b =>
+    b.classList.toggle('active', Number(b.dataset.range) === rangeHours));
+  document.querySelectorAll('.tbtn[data-scale]').forEach(b =>
+    b.classList.toggle('active', b.dataset.scale === scaleMode));
+
   document.getElementById('preset-label').textContent = currentPreset;
   renderTable();
 }
