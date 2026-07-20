@@ -1,6 +1,7 @@
 import csv
 import math
 import os
+from collections import Counter
 
 # A commonly-cited workaround for OpenCV/Windows MSMF "can't grab frame"
 # errors (error -1072875772) seen with VideoCapture.read() from a background
@@ -236,6 +237,8 @@ class PressureLCDReader:
         self._last_accepted_value = None
         self._jump_candidate_value = None   # tracks a repeated out-of-jump-range reading across cycles
         self._jump_candidate_count = 0       # to tell "real step change" apart from "one-off misread"
+        self._votes = []                     # validated reads awaiting the window tally
+        self._window_start = time.time()
         self._last_boxes = []          # [(text, det_conf, ocr_conf, (x1,y1,x2,y2))] in full-frame coords, for overlay
         self._status = {
             "connected": False,
@@ -249,6 +252,9 @@ class PressureLCDReader:
             "alert": False,
             "method": None,
             "templates_available": self._template.available(),
+            "votes": 0,
+            "last_window_summary": None,
+            "last_window_time": None,
         }
         threading.Thread(target=self._loop, daemon=True).start()
 
@@ -429,16 +435,13 @@ class PressureLCDReader:
                 self._last_boxes = result["boxes"]   # already in full-frame coords
 
             if accepted:
-                self._last_accepted_value = result["value"]
+                # A validated read is a vote, not a result. Nothing reaches the
+                # graph until the window closes and the votes are counted.
                 self._jump_candidate_value = None
                 self._jump_candidate_count = 0
-                pressure_ocr.write_csv_row(config.PRESSURE_OCR_LOG_DIR, "pressure_ocr_clean", pressure_ocr.CLEAN_HEADER,
-                    [ts.strftime("%Y-%m-%d %H:%M:%S"), f"{result['value']:.3E}"])
-                _append_pressure_entry(config.PRESSURE_OCR_PRESET, ts.strftime("%Y-%m-%dT%H:%M:%S"),
-                                        result["value"], note="auto:yolo_ocr")
+                self._votes.append(result["value"])
                 with self._lock:
-                    self._status["last_accepted_value"] = result["value"]
-                    self._status["last_accepted_time"] = ts.strftime("%Y-%m-%d %H:%M:%S")
+                    self._status["votes"] = len(self._votes)
                 attempt_num = 0
                 next_attempt_time = time.time() + config.PRESSURE_OCR_INTERVAL
             elif attempt_num > config.PRESSURE_OCR_MAX_RETRIES:
@@ -447,9 +450,56 @@ class PressureLCDReader:
             else:
                 next_attempt_time = time.time() + config.PRESSURE_OCR_RETRY_DELAY
 
+            if time.time() - self._window_start >= config.PRESSURE_OCR_WINDOW:
+                self._close_window()
+
+    def _close_window(self):
+        """Tally the window's votes and commit the winner, if there is one.
+
+        The display shows two significant figures, so agreeing reads are
+        byte-identical — no tolerance band needed, an exact tally is right.
+        A window whose votes never agree is dropped rather than guessed at;
+        the next one is only 10 minutes away.
+        """
+        votes, self._votes = self._votes, []
+        self._window_start = time.time()
+        ts = datetime.now()
+
+        summary = None
+        if not votes:
+            summary = "no valid readings"
+        else:
+            tally = Counter(f"{v:.3E}" for v in votes)
+            top, n = tally.most_common(1)[0]
+            if n < config.PRESSURE_OCR_WINDOW_MIN_VOTES:
+                summary = (f"discarded: best value {top} had only {n} vote"
+                           f" (need {config.PRESSURE_OCR_WINDOW_MIN_VOTES})")
+            else:
+                value = float(top)
+                self._last_accepted_value = value
+                pressure_ocr.write_csv_row(
+                    config.PRESSURE_OCR_LOG_DIR, "pressure_ocr_clean", pressure_ocr.CLEAN_HEADER,
+                    [ts.strftime("%Y-%m-%d %H:%M:%S"), f"{value:.3E}"])
+                _append_pressure_entry(config.PRESSURE_OCR_PRESET, ts.strftime("%Y-%m-%dT%H:%M:%S"),
+                                       value, note=f"auto:vote {n}/{len(votes)}")
+                summary = f"committed {top} on {n}/{len(votes)} votes"
+                with self._lock:
+                    self._status["last_accepted_value"] = value
+                    self._status["last_accepted_time"] = ts.strftime("%Y-%m-%d %H:%M:%S")
+
+        print(f"[pressure OCR] window closed: {summary}")
+        with self._lock:
+            self._status["votes"] = 0
+            self._status["last_window_summary"] = summary
+            self._status["last_window_time"] = ts.strftime("%Y-%m-%d %H:%M:%S")
+
     def get_status(self):
         with self._lock:
-            return dict(self._status)
+            status = dict(self._status)
+        remaining = config.PRESSURE_OCR_WINDOW - (time.time() - self._window_start)
+        status["window_ends_in"] = max(0, int(remaining))
+        status["window_min_votes"] = config.PRESSURE_OCR_WINDOW_MIN_VOTES
+        return status
 
     def reset_baseline(self):
         """Forget the last-accepted value and any pending jump-confirmation,
@@ -458,9 +508,13 @@ class PressureLCDReader:
         self._last_accepted_value = None
         self._jump_candidate_value = None
         self._jump_candidate_count = 0
+        self._votes = []                     # votes belong to the old session
+        self._window_start = time.time()
         with self._lock:
             self._status["last_accepted_value"] = None
             self._status["last_accepted_time"] = None
+            self._status["votes"] = 0
+            self._status["last_window_summary"] = None
 
     def get_overlay(self):
         """(boxes, status_line) for drawing onto the live stream. status_line

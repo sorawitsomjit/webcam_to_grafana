@@ -55,6 +55,16 @@ PRESSURE_OCR_TEMPLATE_MIN_SCORE = 0.70  # reject the reading if any character of
                                         # correct glyphs land at 0.73-0.91, while a glyph with
                                         # no template (matched to the nearest wrong one) fell to
                                         # 0.35-0.61 — so this cleanly separates the two.
+# Window voting. Individual reads of this LCD are unreliable, but a reading is
+# only wanted every 10 minutes or so — which leaves room to read repeatedly and
+# commit the answer the attempts agree on, rather than trusting any single one.
+# Replayed against a real log, requiring 2 agreeing reads produced a correct
+# value in 23 of 37 ten-minute windows (and that log predates the exposure fix).
+# Note this guards against random misreads only: a systematic misread repeats
+# identically across every attempt and will win its own vote.
+PRESSURE_OCR_WINDOW = 600          # seconds per voting window
+PRESSURE_OCR_WINDOW_MIN_VOTES = 2  # agreeing reads needed to commit the window
+
 PRESSURE_OCR_PRESET = "pressure_yolo"   # kept separate from manually-entered presets
 PRESSURE_OCR_CONF_MIN = 0.5
 PRESSURE_OCR_MIN = 1e-9            # sanity bounds, mbar

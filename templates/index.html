@@ -284,7 +284,13 @@
           <div class="metric-value" id="pocr-reason" style="font-size:.95rem;">—</div>
           <div class="metric-unit" id="pocr-attempt-ts">—</div>
         </div>
+        <div class="metric-card">
+          <div class="metric-label">Votes this window</div>
+          <div class="metric-value" id="pocr-votes">—</div>
+          <div class="metric-unit" id="pocr-window">—</div>
+        </div>
       </div>
+      <div class="info-tag" id="pocr-window-summary" style="margin-top:-6px;">—</div>
       <div class="controls" style="margin-top:8px;">
         <button class="btn btn-sm" onclick="newOcrSession()">New OCR Session</button>
         <span class="info-tag">Archives current pressure_yolo data and starts fresh (no restart needed)</span>
@@ -980,6 +986,18 @@ async function pollPressureOcr() {
 
     document.getElementById('pocr-reason').textContent = d.last_attempt_reason || '—';
     document.getElementById('pocr-attempt-ts').textContent = d.last_attempt_time || '—';
+
+    // A reading is only committed once a window's attempts agree, so show how
+    // the current window is filling up rather than leaving it looking stalled.
+    const votes = d.votes ?? 0;
+    const votesEl = document.getElementById('pocr-votes');
+    votesEl.textContent = votes;
+    votesEl.style.color = votes >= (d.window_min_votes ?? 2) ? '#a5d6a7' : '#ddd';
+    const secs = d.window_ends_in ?? 0;
+    document.getElementById('pocr-window').textContent =
+      'next commit in ' + Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0');
+    document.getElementById('pocr-window-summary').textContent =
+      d.last_window_summary ? 'Last window: ' + d.last_window_summary : '—';
 
     document.getElementById('pocrAlert').style.display = d.alert ? 'flex' : 'none';
   } catch {}
