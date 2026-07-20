@@ -16,6 +16,7 @@ import serial
 from flask import Flask, Response, render_template, jsonify, send_from_directory, request
 from datetime import datetime
 import config
+import lcd_template_ocr
 import pressure_ocr
 
 app = Flask(__name__)
@@ -230,6 +231,7 @@ class PressureLCDReader:
     def __init__(self, camera_reader):
         self._camera = camera_reader
         self._model = pressure_ocr.PressureOCRModel()
+        self._template = lcd_template_ocr.LCDTemplateOCR()
         self._lock = threading.Lock()
         self._last_accepted_value = None
         self._jump_candidate_value = None   # tracks a repeated out-of-jump-range reading across cycles
@@ -245,8 +247,105 @@ class PressureLCDReader:
             "last_accepted_time": None,
             "consecutive_rejects": 0,
             "alert": False,
+            "method": None,
+            "templates_available": self._template.available(),
         }
         threading.Thread(target=self._loop, daemon=True).start()
+
+    # Characters a pressure reading is actually made of — the score gate only
+    # judges these, so a missing template for a decorative letter in "mbar"
+    # can't sink an otherwise clean number.
+    _VALUE_CHARS = set("0123456789.eE+-")
+
+    def _template_read(self, raw_crop, rx, ry):
+        """Try the template matcher. Returns a result dict, or None to fall back.
+
+        None means "let the general OCR have a go": either no number was found,
+        or a character of the number matched too weakly to trust. That weak
+        score is the useful signal — on real snapshots a glyph with no template
+        gets silently substituted for the nearest one that does exist, and its
+        score is what gives the substitution away.
+        """
+        res = self._template.read(raw_crop)
+        if not res:
+            return None
+        grid = self._template.grid
+        up = grid.get("upscale", 1) or 1
+        dx, dy = res["offset"]
+
+        for row, line in enumerate(res["lines"]):
+            value = pressure_ocr.parse_pressure(line)
+            if value is None:
+                continue
+            inked = [c for c in line if c != " "]
+            scores = [s for c, s in zip(inked, res["scores"][row]) if c in self._VALUE_CHARS]
+            score = min(scores) if scores else 0.0
+            if score < config.PRESSURE_OCR_TEMPLATE_MIN_SCORE:
+                return None
+
+            # Box the number for the live overlay: grid coords are in upscaled
+            # crop space, so scale back down and shift into the full frame.
+            cols = [i for i, c in enumerate(line) if c != " "]
+            x1, y1, w, h = lcd_template_ocr.cell_rect(grid, row, cols[0], dx, dy)
+            x2, _, w2, _ = lcd_template_ocr.cell_rect(grid, row, cols[-1], dx, dy)
+            box = (int(x1 / up) + rx, int(y1 / up) + ry,
+                   int((x2 + w2) / up) + rx, int((y1 + h) / up) + ry)
+
+            code_seen, label_seen = pressure_ocr.check_mode(res["lines"])
+            return {
+                "value": value,
+                "ocr_conf": score,
+                "det_conf": res["mean_score"],
+                "code_seen": code_seen,
+                "label_seen": label_seen,
+                "mode_confirmed": code_seen or label_seen,
+                "all_texts": [ln for ln in res["lines"] if ln.strip()],
+                "boxes": [(line.strip(), res["mean_score"], score, box)],
+                "method": "template",
+            }
+        return None
+
+    def _read_frame(self, raw_crop, rx, ry):
+        """Read the LCD, preferring template matching over general OCR.
+
+        Templates are built for this display's exact dot-matrix font, so they
+        beat EasyOCR comfortably on it — but they only cover characters that
+        have been calibrated, so YOLO+EasyOCR stays as the fallback for
+        anything they can't vouch for.
+        """
+        if config.PRESSURE_OCR_USE_TEMPLATE and self._template.available():
+            try:
+                result = self._template_read(raw_crop, rx, ry)
+                if result is not None:
+                    return result
+            except Exception as e:
+                print(f"template OCR failed, falling back to YOLO+EasyOCR: {e}")
+
+        crop = pressure_ocr.enhance_lcd(raw_crop)
+        scale = config.PRESSURE_OCR_UPSCALE or 1.0
+        if scale != 1.0:
+            crop = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        try:
+            result = self._model.read_once(crop, conf=config.PRESSURE_OCR_YOLO_CONF)
+        except Exception as e:
+            result = {"value": None, "ocr_conf": 0.0, "det_conf": 0.0,
+                      "mode_confirmed": False, "code_seen": False,
+                      "label_seen": False, "all_texts": [f"error: {e}"], "boxes": []}
+        result["boxes"] = [
+            (text, det_conf, ocr_conf,
+             (int(x1 / scale) + rx, int(y1 / scale) + ry,
+              int(x2 / scale) + rx, int(y2 / scale) + ry))
+            for text, det_conf, ocr_conf, (x1, y1, x2, y2) in result["boxes"]
+        ]
+        result["method"] = "yolo_ocr"
+        return result
+
+    def reload_templates(self):
+        """Pick up templates rebuilt while the app is running."""
+        self._template.load()
+        with self._lock:
+            self._status["templates_available"] = self._template.available()
+        return self._template.available()
 
     def _loop(self):
         attempt_num = 0
@@ -272,24 +371,14 @@ class PressureLCDReader:
             roi = get_roi()
             if roi:
                 rx, ry, rw, rh = roi
-                crop = frame[ry:ry + rh, rx:rx + rw]
-                crop = pressure_ocr.enhance_lcd(crop)
-                scale = config.PRESSURE_OCR_UPSCALE
-                if scale and scale != 1.0:
-                    crop = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+                raw_crop = frame[ry:ry + rh, rx:rx + rw]
             else:
                 rx, ry = 0, 0
-                crop = frame
-                scale = 1.0
+                raw_crop = frame
 
             attempt_num += 1
             ts = datetime.now()
-            try:
-                result = self._model.read_once(crop, conf=config.PRESSURE_OCR_YOLO_CONF)
-            except Exception as e:
-                result = {"value": None, "ocr_conf": 0.0, "det_conf": 0.0,
-                          "mode_confirmed": False, "code_seen": False,
-                          "label_seen": False, "all_texts": [f"error: {e}"], "boxes": []}
+            result = self._read_frame(raw_crop, rx, ry)
 
             accepted, reason = pressure_ocr.validate_reading(
                 result["value"], result["ocr_conf"], result["mode_confirmed"],
@@ -335,14 +424,9 @@ class PressureLCDReader:
                     "mode_confirmed": result["mode_confirmed"],
                     "consecutive_rejects": rejects,
                     "alert": rejects >= config.PRESSURE_OCR_ALERT_THRESHOLD,
+                    "method": result.get("method"),
                 })
-                # shift box coords from (possibly upscaled) crop-space back to full-frame-space
-                self._last_boxes = [
-                    (text, det_conf, ocr_conf,
-                     (int(x1 / scale) + rx, int(y1 / scale) + ry,
-                      int(x2 / scale) + rx, int(y2 / scale) + ry))
-                    for text, det_conf, ocr_conf, (x1, y1, x2, y2) in result["boxes"]
-                ]
+                self._last_boxes = result["boxes"]   # already in full-frame coords
 
             if accepted:
                 self._last_accepted_value = result["value"]
@@ -904,6 +988,15 @@ def set_pressure_ocr_roi():
 def reset_pressure_ocr_roi():
     set_roi(None)
     return jsonify({"ok": True, "roi": None})
+
+
+@app.route("/api/pressure_ocr/templates/reload", methods=["POST"])
+def reload_pressure_ocr_templates():
+    """Re-read lcd_templates/ after running build_lcd_templates.py, so newly
+    calibrated characters take effect without restarting the app."""
+    available = pressure_lcd_reader.reload_templates()
+    return jsonify({"ok": True, "templates_available": available,
+                    "chars": pressure_lcd_reader._template.known_chars()})
 
 
 if __name__ == "__main__":

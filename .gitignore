@@ -7,4 +7,7 @@ pressure_data.json
 snapshots_meta.json
 pressure_ocr_roi.json
 YOLO_test/exposure_test/
+# Character bitmaps cut from this particular camera/ROI setup — calibration
+# data rather than source, and only valid for the rig they were cut on.
+lcd_templates/
 logs/

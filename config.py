@@ -43,6 +43,18 @@ PRESSURE_OCR_YOLO_CONF = 0.15      # YOLO detection confidence threshold. Lowere
                                    # are worth letting through since there's little else to false-positive on.
 PRESSURE_OCR_ALERT_THRESHOLD = 20  # consecutive rejected attempts before the dashboard shows a
                                    # "check the camera/ROI" warning (e.g. camera got bumped out of frame).
+
+# Template matching (lcd_template_ocr.py) — the primary reader, with the YOLO+EasyOCR
+# path above kept as a fallback. General OCR can't handle this LCD's dot-matrix font
+# (it slashes its zeros; logs showed "0" read as l/i/]/Z/I/O and "3" as S), so glyphs
+# are matched against bitmaps cut from this exact display instead. Set up the
+# templates with: python YOLO_test/build_lcd_templates.py --image <a snapshot>
+PRESSURE_OCR_USE_TEMPLATE = True
+PRESSURE_OCR_TEMPLATE_MIN_SCORE = 0.70  # reject the reading if any character of the number
+                                        # scores below this. Measured on real snapshots:
+                                        # correct glyphs land at 0.73-0.91, while a glyph with
+                                        # no template (matched to the nearest wrong one) fell to
+                                        # 0.35-0.61 — so this cleanly separates the two.
 PRESSURE_OCR_PRESET = "pressure_yolo"   # kept separate from manually-entered presets
 PRESSURE_OCR_CONF_MIN = 0.5
 PRESSURE_OCR_MIN = 1e-9            # sanity bounds, mbar
