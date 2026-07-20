@@ -5,4 +5,6 @@ __pycache__/
 .env
 pressure_data.json
 snapshots_meta.json
+pressure_ocr_roi.json
+YOLO_test/exposure_test/
 logs/

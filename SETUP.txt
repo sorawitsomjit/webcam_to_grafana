@@ -10,11 +10,27 @@
 
 
 ================================================================
-  STEP 1 — Clone โปรเจกต์
+  STEP 1 — Clone โปรเจกต์ (branch: yolo-extract-value)
 ================================================================
 
-  git clone https://github.com/sorawitsomjit/webcam_to_grafana.git
-  cd webcam_to_grafana
+  โปรเจกต์ตอนนี้มีฟีเจอร์ YOLO+OCR อ่านค่า pressure จากจอ LCD ปั๊มสูญญากาศ
+  อยู่บน branch "yolo-extract-value" (ยังไม่ merge เข้า main)
+
+  Clone ใหม่ทั้งเครื่อง:
+    git clone https://github.com/sorawitsomjit/webcam_to_grafana.git
+    cd webcam_to_grafana
+    git checkout yolo-extract-value
+
+  เครื่องที่ clone ไว้แล้ว (มี repo อยู่แล้ว แค่ต้องการ branch นี้):
+    cd webcam_to_grafana
+    git fetch origin
+    git checkout yolo-extract-value
+    git pull
+
+  เครื่องที่มี branch นี้อยู่แล้ว แค่ต้องการโค้ดล่าสุด:
+    cd webcam_to_grafana
+    git checkout yolo-extract-value
+    git pull
 
 
 ================================================================
@@ -24,12 +40,24 @@
   Windows:
     python -m venv venv
     .\venv\Scripts\activate
+
+    REM ติดตั้ง torch แบบ CPU-only ก่อน requirements.txt เสมอ
+    REM (ถ้าไม่ทำ pip อาจดึง opencv-python-headless มาทับ opencv-python
+    REM  ตัวเดิม ทำให้ cv2.imshow / cv2.namedWindow ใช้ไม่ได้)
+    pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+
     pip install -r requirements.txt
 
   Linux / macOS:
     python3 -m venv venv
     source venv/bin/activate
+    pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
     pip install -r requirements.txt
+
+  หมายเหตุ: requirements.txt มี ultralytics, huggingface_hub, easyocr เพิ่มมา
+            สำหรับฟีเจอร์ YOLO อ่านค่า pressure — การติดตั้งครั้งแรกอาจโหลด
+            model จาก Hugging Face (RoyRud1902/yolo11n-text) ตอนรันครั้งแรก
+            ต้องมีอินเทอร์เน็ตตอนนั้น
 
 
 ================================================================
@@ -40,14 +68,31 @@
 
     CAMERA_INDEX = 0      หมายเลข webcam (0 = กล้องแรก, 1 = กล้องที่สอง)
                           ถ้าไม่รู้ลองเริ่มที่ 0 ก่อน
+                          ** กล้องตัวเดียวกันนี้ถูกใช้ทั้ง live stream/snapshot
+                             และ pressure OCR (YOLO) ด้านล่าง ไม่ต้องตั้งซ้ำ **
 
-    SNAPSHOT_INTERVAL = 60   ความถี่ถ่ายภาพอัตโนมัติ (หน่วย: วินาที)
-                             60  = 1 นาที  (สำหรับทดสอบ)
-                             600 = 10 นาที (production)
-                             900 = 15 นาที (production)
+    SNAPSHOT_INTERVAL = 600   ความถี่ถ่ายภาพอัตโนมัติ (หน่วย: วินาที, ขั้นต่ำ 600)
+                             600  = 10 นาที (default)
+                             900  = 15 นาที
+                             1800 = 30 นาที
+                             (ค่าถี่กว่านี้ไม่ต้องใช้แล้ว เพราะ pressure OCR
+                              ด้านล่างอ่านค่าบ่อยกว่าอยู่แล้ว)
 
-    PORT = 5050           port ของ web server
+    PORT = 8080            port ของ web server
                           เปลี่ยนถ้า port นั้นถูกใช้อยู่แล้ว
+
+    -- ตั้งค่า Pressure LCD OCR (YOLO) --
+    ตั้งค่ากลุ่มนี้ใช้ได้เลยตามค่า default ที่ให้มา ปรับเฉพาะที่จำเป็น:
+
+    PRESSURE_OCR_INTERVAL = 20        ทุกกี่วินาทีให้ลองอ่านค่าจากกล้องหนึ่งครั้ง
+    PRESSURE_OCR_ROI = None           None = ใช้ทั้งเฟรม (ใช้ได้ แต่แม่นยำน้อยกว่า)
+                                      ถ้าอยากตั้ง ROI (ครอบเฉพาะจอ LCD) ให้รัน
+                                      YOLO_test/pressure_lcd_reader.py ครั้งเดียว
+                                      กับกล้องจริงที่ส่องปั๊ม แล้วเอาค่าที่ได้มาใส่
+                                      ตรงนี้ เช่น (x, y, w, h)
+    PRESSURE_OCR_PRESET = "pressure_yolo"   ชื่อ preset แยกจาก preset ที่กรอกมือ
+    (ค่าที่เหลือ เช่น bounds, jump-confirm ปรับตามความจำเป็นเท่านั้น
+     ดูรายละเอียดที่ YOLO_test/PRESSURE_LCD_READER.md)
 
 
 ================================================================
@@ -109,8 +154,8 @@
   Endpoints ทั้งหมด
 ================================================================
 
-  /                          หน้าเว็บหลัก (stream + gallery)
-  /video_feed                MJPEG live stream
+  /                          หน้าเว็บหลัก (stream + gallery + pressure OCR)
+  /video_feed                MJPEG live stream (มี overlay กล่อง OCR + ค่า pressure)
   /latest                    ภาพล่าสุด (JPEG)
   /snapshot/n/<N>            ภาพที่ N (0=ล่าสุด, 1=ก่อนหน้า, ...)
   /snapshots/<filename>      ไฟล์ภาพตาม filename
@@ -119,6 +164,12 @@
   /embed/stream              หน้า stream สำหรับเปิดใน browser
   /embed/snapshot            หน้า snapshot สำหรับเปิดใน browser
   /embed/gallery?limit=N     หน้า gallery สำหรับเปิดใน browser
+
+  -- Pressure LCD OCR (YOLO) --
+  /api/pressure_ocr/status         JSON สถานะล่าสุดของการอ่านค่า OCR
+  /api/pressure_ocr/new_session    POST — เริ่ม session ใหม่ (archive ค่าเดิม
+                                   ไปเป็น preset แยก ไม่ต้อง restart app.py)
+  /embed/pressure_ocr              หน้าสรุปสถานะ OCR สำหรับฝัง Grafana
 
 
 ================================================================
@@ -137,5 +188,22 @@
     - ตรวจสอบ IP และ PORT ใน HTML snippet
     - ตรวจสอบว่า app.py รันอยู่
     - Text panel ต้องเปิด HTML mode (disable_sanitize_html = true ใน grafana.ini)
+
+  ติดตั้ง easyocr/ultralytics แล้ว cv2.imshow ใช้ไม่ได้ (GUI window ไม่เปิด)
+    - แปลว่า opencv-python-headless ถูกดึงมาทับ opencv-python ตัวเดิม
+    - แก้: pip uninstall -y opencv-python-headless
+           pip install --force-reinstall --no-deps opencv-python==4.13.0.92
+    - ป้องกันไว้ก่อน: ติดตั้ง torch (CPU-only) ก่อน requirements.txt เสมอ
+      ตามขั้นตอนใน STEP 2
+
+  รันครั้งแรกช้ามาก / ค้างตอนโหลด
+    - รอบแรกที่รัน app.py มันจะโหลด YOLO model จาก Hugging Face
+      (RoyRud1902/yolo11n-text) ต้องมีอินเทอร์เน็ต และใช้เวลาสักครู่
+      ครั้งต่อไปจะเร็วขึ้นเพราะ cache ไว้แล้ว
+
+  Pressure OCR ไม่ยอมอัปเดตค่า (badge ค้าง/ไม่ขยับ)
+    - เครื่องนี้ไม่มี GPU เลยใช้เวลาราว 5-8 วินาที ต่อการอ่านหนึ่งครั้ง
+      (PRESSURE_OCR_INTERVAL ปกติ) เป็นเรื่องปกติ ไม่ใช่ค้าง
+    - เช็คที่ /api/pressure_ocr/status ว่า "connected": true หรือไม่
 
 ================================================================

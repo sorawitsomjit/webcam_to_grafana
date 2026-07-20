@@ -51,6 +51,15 @@
     width: 100%; height: 220px; display: flex; align-items: center;
     justify-content: center; color: #444; font-size: .9rem;
   }
+  #roiOverlay {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    display: none; cursor: crosshair;
+  }
+  #roiOverlay.active { display: block; }
+  #roiBox {
+    position: absolute; border: 2px dashed #4caf50; background: rgba(76,175,80,.1);
+    display: none; pointer-events: none;
+  }
 
   /* ── Interval control ── */
   .interval-bar {
@@ -218,9 +227,11 @@
     <!-- Stream -->
     <section style="margin-bottom:0;">
       <div class="sec-title">Live Stream</div>
-      <div class="stream-wrap">
+      <div class="stream-wrap" id="streamWrap" style="position:relative;">
         {% if camera_ok %}
-        <img src="/video_feed" alt="Live Feed">
+        <img src="/video_feed" alt="Live Feed" id="streamImg">
+        <div id="roiOverlay"></div>
+        <div id="roiBox"></div>
         {% else %}
         <div class="stream-placeholder">Camera not available</div>
         {% endif %}
@@ -228,18 +239,24 @@
       <div class="controls" style="margin-top:10px;">
         <button class="btn btn-green" onclick="takeSnapshot()">&#128247; Snapshot</button>
         {% if all_snaps %}<span class="info-tag">Last: {{ all_snaps[0]|format_ts }}</span>{% endif %}
+        <button class="btn btn-sm" id="roiSelectBtn" onclick="toggleRoiSelect()">Select ROI</button>
+        <button class="btn btn-sm btn-red" onclick="resetRoi()">Reset ROI</button>
+        <span class="info-tag" id="roiStatus"></span>
+      </div>
+      <div id="pocrAlert" class="controls" style="display:none;background:#7f0000;border-radius:5px;padding:6px 12px;margin-top:6px;">
+        <span>&#9888; OCR ไม่เจอเลขต่อกันหลายครั้ง — กล้องอาจขยับ ลองเช็ค/reset ROI</span>
       </div>
 
       <!-- Interval control -->
       <div class="interval-bar">
         <label>Interval:</label>
-        {% set presets = [("10m",600),("15m",900),("30m",1800)] %}
+        {% set presets = [("1m",60),("5m",300),("10m",600),("15m",900),("30m",1800)] %}
         {% for label, secs in presets %}
         <button class="iv-btn {% if interval == secs %}active{% endif %}"
                 data-secs="{{ secs }}" onclick="setInterval_({{ secs }})">{{ label }}</button>
         {% endfor %}
         <div class="iv-custom">
-          <input type="number" id="customIv" min="600" placeholder="s">
+          <input type="number" id="customIv" min="30" placeholder="s">
           <button class="btn btn-sm" onclick="setCustomInterval()">Set</button>
         </div>
         <div class="countdown">Next: <span id="countdown">--:--</span></div>
@@ -522,8 +539,8 @@ async function setInterval_(secs) {
 
 function setCustomInterval() {
   const v = parseInt(document.getElementById('customIv').value);
-  if (v >= 600) setInterval_(v);
-  else toast('Minimum 10 min (600s)', false);
+  if (v >= 30) setInterval_(v);
+  else toast('Minimum 30 seconds', false);
 }
 
 document.getElementById('customIv').addEventListener('keydown', e => {
@@ -963,6 +980,8 @@ async function pollPressureOcr() {
 
     document.getElementById('pocr-reason').textContent = d.last_attempt_reason || '—';
     document.getElementById('pocr-attempt-ts').textContent = d.last_attempt_time || '—';
+
+    document.getElementById('pocrAlert').style.display = d.alert ? 'flex' : 'none';
   } catch {}
 }
 
@@ -983,6 +1002,91 @@ async function newOcrSession() {
 
 pollPressureOcr();
 setInterval(pollPressureOcr, 10000);
+
+// ── ROI select/reset — camera isn't bolted down, so this needs to be quick
+// and not require editing config.py or restarting the app ─────────────────
+let roiSelecting = false;
+let roiStart = null;
+
+function toggleRoiSelect() {
+  const overlay = document.getElementById('roiOverlay');
+  const btn = document.getElementById('roiSelectBtn');
+  if (!overlay) return;
+  roiSelecting = !roiSelecting;
+  overlay.classList.toggle('active', roiSelecting);
+  btn.textContent = roiSelecting ? 'Cancel' : 'Select ROI';
+  if (!roiSelecting) document.getElementById('roiBox').style.display = 'none';
+}
+
+(function initRoiOverlay() {
+  const overlay = document.getElementById('roiOverlay');
+  if (!overlay) return;
+
+  overlay.addEventListener('mousedown', e => {
+    const rect = overlay.getBoundingClientRect();
+    roiStart = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const box = document.getElementById('roiBox');
+    Object.assign(box.style, { left: roiStart.x + 'px', top: roiStart.y + 'px', width: '0px', height: '0px', display: 'block' });
+  });
+
+  overlay.addEventListener('mousemove', e => {
+    if (!roiStart) return;
+    const rect = overlay.getBoundingClientRect();
+    const cur = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const box = document.getElementById('roiBox');
+    box.style.left = Math.min(roiStart.x, cur.x) + 'px';
+    box.style.top = Math.min(roiStart.y, cur.y) + 'px';
+    box.style.width = Math.abs(cur.x - roiStart.x) + 'px';
+    box.style.height = Math.abs(cur.y - roiStart.y) + 'px';
+  });
+
+  overlay.addEventListener('mouseup', async e => {
+    if (!roiStart) return;
+    const rect = overlay.getBoundingClientRect();
+    const cur = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const img = document.getElementById('streamImg');
+    const scaleX = img.naturalWidth / rect.width;
+    const scaleY = img.naturalHeight / rect.height;
+    const x = Math.round(Math.min(roiStart.x, cur.x) * scaleX);
+    const y = Math.round(Math.min(roiStart.y, cur.y) * scaleY);
+    const w = Math.round(Math.abs(cur.x - roiStart.x) * scaleX);
+    const h = Math.round(Math.abs(cur.y - roiStart.y) * scaleY);
+    roiStart = null;
+
+    if (w < 10 || h < 10) { toast('เลือกกรอบเล็กไป ลองใหม่', false); return; }
+    if (!confirm(`ตั้ง ROI เป็น (${x}, ${y}, ${w}, ${h}) ?`)) { document.getElementById('roiBox').style.display = 'none'; return; }
+
+    try {
+      const r = await fetch('/api/pressure_ocr/roi', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ x, y, w, h })
+      });
+      const d = await r.json();
+      if (d.ok) { toast('ROI saved'); toggleRoiSelect(); loadRoiStatus(); }
+      else toast('Failed: ' + (d.error || ''), false);
+    } catch { toast('Failed', false); }
+  });
+})();
+
+async function resetRoi() {
+  if (!confirm('รีเซ็ต ROI กลับเป็น full-frame?')) return;
+  try {
+    const r = await fetch('/api/pressure_ocr/roi/reset', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) { toast('ROI reset'); loadRoiStatus(); }
+  } catch { toast('Failed', false); }
+}
+
+async function loadRoiStatus() {
+  const el = document.getElementById('roiStatus');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/pressure_ocr/roi');
+    const d = await r.json();
+    el.textContent = d.roi ? `ROI: ${d.roi.join(', ')}` : 'ROI: full frame';
+  } catch {}
+}
+loadRoiStatus();
 
 // ── Auto-refresh the pressure graph so new OCR readings show up live ──────
 async function pollPressureData() {

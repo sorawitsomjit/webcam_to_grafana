@@ -5,17 +5,31 @@ import re
 import threading
 from datetime import datetime
 
+import cv2
+
 # e.g. "6.3E-6" — single-digit mantissa (this LCD's fixed "%.1E" format).
 # Separator is optional/loose because OCR sometimes misreads the dot as a
-# space or underscore.
-PRESSURE_RE = re.compile(r'(\d)[._]?(\d)\s*[eE]\s*([+-]?\d+)')
+# space or underscore (on real hardware, a plain space is the most common
+# misread — e.g. "6 3E0" for "6.3E0").
+#
+# The exponent group also accepts a handful of confusable characters instead
+# of a plain digit: this LCD's font draws "0" with a slash through it (to
+# tell it apart from letter O), which EasyOCR — trained on ordinary printed
+# text, never this font — frequently misreads as something else entirely.
+# Tallied straight from a real pressure_ocr_raw_*.csv log (pump sitting at
+# ...E0 for hours): l (157x), i (55x), ] (40x), Z (12x), I (10x), O (8x) all
+# stood in for a missing "0" in this exact slot. Substituted back to '0'
+# after matching, not treated as literal digits.
+PRESSURE_RE = re.compile(r'(\d)[._ ]?(\d)\s*[eE]\s*([+-]?[\dlIiZzO\]]+)')
+_EXP_ZERO_CONFUSABLES = str.maketrans({c: '0' for c in 'lIiZzO]'})
 
 # Pfeiffer-style vacuum controllers show "<param code>: <name>" alongside the
-# reading (this LCD mockup mimics that: "340: Pressure"). Param code 340 is
-# consistently read at conf 0.94-1.00 in testing, more reliable than the
-# word "Pressure" which OCR sometimes mangles ("Pressurc") — so either one
-# confirming is treated as enough, but both are logged for visibility.
-PRESSURE_CODE_RE = re.compile(r'^340:?$')
+# reading (this LCD mockup mimics that: "340: Pressure"). On real hardware,
+# YOLO's box-merge often fuses "340:" and "Pressure" into one text (e.g.
+# "340 Pressure", "340 Pres") since they sit on the same line close
+# together — so these must be substring searches, not exact-match, or a
+# merged box confirms neither.
+PRESSURE_CODE_RE = re.compile(r'340\s*:?')
 
 RAW_HEADER = ['timestamp', 'attempt', 'raw_texts', 'parsed_value',
               'ocr_conf', 'det_conf', 'code_seen', 'label_seen',
@@ -27,13 +41,16 @@ def parse_pressure(text):
     m = PRESSURE_RE.search(text.replace(' ', ''))
     if not m:
         return None
-    ones, tenths, exponent = m.groups()
+    ones, tenths, exp_raw = m.groups()
+    exponent = exp_raw.translate(_EXP_ZERO_CONFUSABLES)
+    if not re.fullmatch(r'[+-]?\d+', exponent):
+        return None
     return float(f"{ones}.{tenths}") * (10 ** int(exponent))
 
 
 def check_mode(texts):
-    code_seen = any(PRESSURE_CODE_RE.match(t.strip()) for t in texts)
-    label_seen = any(t.strip().lower().startswith('pressur') for t in texts)
+    code_seen = any(PRESSURE_CODE_RE.search(t) for t in texts)
+    label_seen = any('pressur' in t.lower() for t in texts)
     return code_seen, label_seen
 
 
@@ -93,6 +110,17 @@ def merge_nearby_boxes(boxes, x_gap_ratio=0.6, y_overlap_ratio=0.5):
                 changed = True
         merged.append((cur[0], cur[1], cur[2], cur[3], cur_conf))
     return merged
+
+
+def enhance_lcd(crop):
+    """CLAHE contrast boost on the L channel. Real pump LCDs run dim/low-contrast
+    (unlike the bright monitor-based simulator this was first tuned against) —
+    this makes the digits stand out more before YOLO/EasyOCR ever see them."""
+    lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    l = clahe.apply(l)
+    return cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
 
 
 def write_csv_row(log_dir, filename_prefix, header, row):

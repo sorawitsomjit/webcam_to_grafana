@@ -40,8 +40,30 @@ class CameraReader:
     def _open(self):
         if self.cap:
             self.cap.release()
-        self.cap = cv2.VideoCapture(config.CAMERA_INDEX)
+        # CAP_DSHOW (not the default backend) is what YOLO_test/camera_exposure_tune.py
+        # used to find the manual exposure/gain/WB values below — matching it here so
+        # those values actually take effect the same way in production.
+        self.cap = cv2.VideoCapture(config.CAMERA_INDEX, cv2.CAP_DSHOW)
         self._connected = self.cap.isOpened()
+        if self._connected:
+            self._apply_manual_settings()
+
+    def _apply_manual_settings(self):
+        """Lock exposure/gain/white-balance to fixed values tuned against the real
+        pump LCD (see config.py) instead of leaving them on auto — auto-exposure
+        was observed taking hours to converge and resetting on any disturbance."""
+        if config.CAMERA_MANUAL_EXPOSURE is not None:
+            self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
+            self.cap.set(cv2.CAP_PROP_EXPOSURE, config.CAMERA_MANUAL_EXPOSURE)
+        if config.CAMERA_GAIN is not None:
+            self.cap.set(cv2.CAP_PROP_GAIN, config.CAMERA_GAIN)
+        if config.CAMERA_MANUAL_WB_TEMP is not None:
+            self.cap.set(cv2.CAP_PROP_AUTO_WB, 0)
+            self.cap.set(cv2.CAP_PROP_WB_TEMPERATURE, config.CAMERA_MANUAL_WB_TEMP)
+        if config.CAMERA_BRIGHTNESS is not None:
+            self.cap.set(cv2.CAP_PROP_BRIGHTNESS, config.CAMERA_BRIGHTNESS)
+        if config.CAMERA_CONTRAST is not None:
+            self.cap.set(cv2.CAP_PROP_CONTRAST, config.CAMERA_CONTRAST)
 
     def _loop(self):
         self._open()
@@ -161,6 +183,41 @@ class LakeShoreReader:
 ls336 = LakeShoreReader()
 
 
+# ─── Pressure OCR ROI store ──────────────────────────────────────────────────
+# Persisted to its own JSON file (not config.py) and hot-swappable — the
+# camera isn't bolted down, so it can get bumped and need re-aiming without
+# an app restart. Falls back to config.PRESSURE_OCR_ROI if no file exists yet.
+
+_ROI_FILE = os.path.join(config.BASE_DIR, "pressure_ocr_roi.json")
+_roi_lock = threading.Lock()
+
+
+def _load_roi_file():
+    if os.path.exists(_ROI_FILE):
+        with open(_ROI_FILE, encoding="utf-8") as f:
+            roi = json.load(f).get("roi")
+            return tuple(roi) if roi else None
+    return config.PRESSURE_OCR_ROI
+
+
+_current_roi = _load_roi_file()
+
+
+def get_roi():
+    with _roi_lock:
+        return _current_roi
+
+
+def set_roi(roi):
+    """roi: (x, y, w, h), or None/falsy to reset to full-frame."""
+    global _current_roi
+    with _roi_lock:
+        _current_roi = tuple(int(v) for v in roi) if roi else None
+        with open(_ROI_FILE, "w", encoding="utf-8") as f:
+            json.dump({"roi": list(_current_roi) if _current_roi else None}, f)
+        return _current_roi
+
+
 # ─── Pressure LCD OCR (YOLO) ─────────────────────────────────────────────────
 # See YOLO_test/PRESSURE_LCD_READER.md for how this pipeline works and why.
 
@@ -186,6 +243,8 @@ class PressureLCDReader:
             "mode_confirmed": None,
             "last_accepted_value": None,
             "last_accepted_time": None,
+            "consecutive_rejects": 0,
+            "alert": False,
         }
         threading.Thread(target=self._loop, daemon=True).start()
 
@@ -210,17 +269,23 @@ class PressureLCDReader:
                 time.sleep(0.5)
                 continue
 
-            if config.PRESSURE_OCR_ROI:
-                rx, ry, rw, rh = config.PRESSURE_OCR_ROI
+            roi = get_roi()
+            if roi:
+                rx, ry, rw, rh = roi
                 crop = frame[ry:ry + rh, rx:rx + rw]
+                crop = pressure_ocr.enhance_lcd(crop)
+                scale = config.PRESSURE_OCR_UPSCALE
+                if scale and scale != 1.0:
+                    crop = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
             else:
                 rx, ry = 0, 0
                 crop = frame
+                scale = 1.0
 
             attempt_num += 1
             ts = datetime.now()
             try:
-                result = self._model.read_once(crop, conf=0.25)
+                result = self._model.read_once(crop, conf=config.PRESSURE_OCR_YOLO_CONF)
             except Exception as e:
                 result = {"value": None, "ocr_conf": 0.0, "det_conf": 0.0,
                           "mode_confirmed": False, "code_seen": False,
@@ -262,15 +327,20 @@ class PressureLCDReader:
             ])
 
             with self._lock:
+                rejects = 0 if accepted else self._status["consecutive_rejects"] + 1
                 self._status.update({
                     "last_attempt_time": ts.strftime("%Y-%m-%d %H:%M:%S"),
                     "last_attempt_value": result["value"],
                     "last_attempt_reason": reason,
                     "mode_confirmed": result["mode_confirmed"],
+                    "consecutive_rejects": rejects,
+                    "alert": rejects >= config.PRESSURE_OCR_ALERT_THRESHOLD,
                 })
-                # shift box coords from crop-space back to full-frame-space for overlay drawing
+                # shift box coords from (possibly upscaled) crop-space back to full-frame-space
                 self._last_boxes = [
-                    (text, det_conf, ocr_conf, (x1 + rx, y1 + ry, x2 + rx, y2 + ry))
+                    (text, det_conf, ocr_conf,
+                     (int(x1 / scale) + rx, int(y1 / scale) + ry,
+                      int(x2 / scale) + rx, int(y2 / scale) + ry))
                     for text, det_conf, ocr_conf, (x1, y1, x2, y2) in result["boxes"]
                 ]
 
@@ -439,6 +509,12 @@ def index():
 
 
 def _draw_pressure_overlay(frame):
+    roi = get_roi()
+    if roi:
+        rx, ry, rw, rh = roi
+        cv2.rectangle(frame, (rx, ry), (rx + rw, ry + rh), (0, 165, 255), 1)
+        cv2.putText(frame, "ROI", (rx, max(0, ry - 5)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 1)
     boxes, status_line = pressure_lcd_reader.get_overlay()
     for text, det_conf, ocr_conf, (x1, y1, x2, y2) in boxes:
         is_pressure = pressure_ocr.parse_pressure(text) is not None
@@ -694,8 +770,8 @@ def set_interval_api():
     body = request.get_json()
     try:
         seconds = int(body["interval_s"])
-        if seconds < 600:
-            return jsonify({"ok": False, "error": "Minimum 10 min (pressure OCR now covers frequent monitoring)"}), 400
+        if seconds < 30:
+            return jsonify({"ok": False, "error": "Minimum 30 seconds"}), 400
     except (KeyError, ValueError, TypeError):
         return jsonify({"ok": False, "error": "Invalid value"}), 400
     set_interval(seconds)
@@ -803,6 +879,31 @@ def pressure_ocr_new_session():
 @app.route("/embed/pressure_ocr")
 def embed_pressure_ocr():
     return render_template("embed_pressure_ocr.html")
+
+
+@app.route("/api/pressure_ocr/roi", methods=["GET"])
+def get_pressure_ocr_roi():
+    roi = get_roi()
+    return jsonify({"roi": list(roi) if roi else None})
+
+
+@app.route("/api/pressure_ocr/roi", methods=["POST"])
+def set_pressure_ocr_roi():
+    body = request.get_json()
+    try:
+        x, y, w, h = int(body["x"]), int(body["y"]), int(body["w"]), int(body["h"])
+        if w <= 0 or h <= 0:
+            raise ValueError
+    except (KeyError, ValueError, TypeError):
+        return jsonify({"ok": False, "error": "Invalid ROI"}), 400
+    roi = set_roi((x, y, w, h))
+    return jsonify({"ok": True, "roi": list(roi)})
+
+
+@app.route("/api/pressure_ocr/roi/reset", methods=["POST"])
+def reset_pressure_ocr_roi():
+    set_roi(None)
+    return jsonify({"ok": True, "roi": None})
 
 
 if __name__ == "__main__":
