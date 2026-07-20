@@ -12,16 +12,28 @@ import cv2
 # space or underscore (on real hardware, a plain space is the most common
 # misread — e.g. "6 3E0" for "6.3E0").
 #
-# The exponent group also accepts a handful of confusable characters instead
-# of a plain digit: this LCD's font draws "0" with a slash through it (to
-# tell it apart from letter O), which EasyOCR — trained on ordinary printed
-# text, never this font — frequently misreads as something else entirely.
-# Tallied straight from a real pressure_ocr_raw_*.csv log (pump sitting at
-# ...E0 for hours): l (157x), i (55x), ] (40x), Z (12x), I (10x), O (8x) all
-# stood in for a missing "0" in this exact slot. Substituted back to '0'
-# after matching, not treated as literal digits.
+# The exponent group also accepts a handful of characters EasyOCR substitutes
+# for digits in this font. Which digit each one stands for was read off the
+# logs directly, by finding confusable reads sitting next to a clean read of
+# the same value moments earlier or later:
+#
+#   '1 4El'   next to clean '1 4E1'   -> l = 1
+#   '4 0EI'   next to clean '4.0E1'   -> I = 1
+#   '1 0Ei'   next to clean '1 2E1'   -> i = 1
+#   '3.4E]'   next to clean '3 4E1'   -> ] = 1
+#   '1 0EZ'   next to clean '1 0E2'   -> Z = 2
+#   '6 3EO'   next to clean '6 3E0'   -> O = 0
+#
+# Getting this wrong is worse than not guessing at all: an exponent off by one
+# is a reading off by 10x, and it arrives looking perfectly plausible. A first
+# pass here mapped all of these to '0' on the assumption they were the font's
+# slashed zero, which silently turned 4.6E1 (46 mbar) into 4.6.
 PRESSURE_RE = re.compile(r'(\d)[._ ]?(\d)\s*[eE]\s*([+-]?[\dlIiZzO\]]+)')
-_EXP_ZERO_CONFUSABLES = str.maketrans({c: '0' for c in 'lIiZzO]'})
+_EXP_CONFUSABLES = str.maketrans({
+    'l': '1', 'I': '1', 'i': '1', ']': '1',
+    'Z': '2', 'z': '2',
+    'O': '0',
+})
 
 # Pfeiffer-style vacuum controllers show "<param code>: <name>" alongside the
 # reading (this LCD mockup mimics that: "340: Pressure"). On real hardware,
@@ -42,7 +54,7 @@ def parse_pressure(text):
     if not m:
         return None
     ones, tenths, exp_raw = m.groups()
-    exponent = exp_raw.translate(_EXP_ZERO_CONFUSABLES)
+    exponent = exp_raw.translate(_EXP_CONFUSABLES)
     if not re.fullmatch(r'[+-]?\d+', exponent):
         return None
     return float(f"{ones}.{tenths}") * (10 ** int(exponent))
