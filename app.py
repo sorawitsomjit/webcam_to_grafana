@@ -1,7 +1,6 @@
 import csv
 import math
 import os
-from collections import Counter
 
 # A commonly-cited workaround for OpenCV/Windows MSMF "can't grab frame"
 # errors (error -1072875772) seen with VideoCapture.read() from a background
@@ -19,6 +18,7 @@ from datetime import datetime
 import config
 import lcd_template_ocr
 import pressure_ocr
+import vlm_ocr
 
 app = Flask(__name__)
 
@@ -232,13 +232,12 @@ class PressureLCDReader:
     def __init__(self, camera_reader):
         self._camera = camera_reader
         self._model = pressure_ocr.PressureOCRModel()
+        self._vlm = vlm_ocr.VLMReader()
         self._template = lcd_template_ocr.LCDTemplateOCR()
         self._lock = threading.Lock()
         self._last_accepted_value = None
         self._jump_candidate_value = None   # tracks a repeated out-of-jump-range reading across cycles
         self._jump_candidate_count = 0       # to tell "real step change" apart from "one-off misread"
-        self._votes = []                     # validated reads awaiting the window tally
-        self._window_start = time.time()
         self._last_boxes = []          # [(text, det_conf, ocr_conf, (x1,y1,x2,y2))] in full-frame coords, for overlay
         self._status = {
             "connected": False,
@@ -252,9 +251,7 @@ class PressureLCDReader:
             "alert": False,
             "method": None,
             "templates_available": self._template.available(),
-            "votes": 0,
-            "last_window_summary": None,
-            "last_window_time": None,
+            "points_saved": 0,
         }
         threading.Thread(target=self._loop, daemon=True).start()
 
@@ -311,6 +308,36 @@ class PressureLCDReader:
             }
         return None
 
+    def _vlm_read(self, raw_crop, rx, ry):
+        """Ask the vision-language model to transcribe the LCD.
+
+        The model gives no confidence, so ocr_conf is a fixed 1.0 and the real
+        guards are the number parse, the 340/Pressure mode check, the range and
+        jump checks, and the window vote. An API failure comes back as a
+        rejected attempt (error text goes to the log), never as an exception.
+        """
+        h, w = raw_crop.shape[:2]
+        try:
+            text = self._vlm.read_text(raw_crop, config.PRESSURE_OCR_UPSCALE)
+        except Exception as e:
+            return {"value": None, "ocr_conf": 0.0, "det_conf": 0.0,
+                    "mode_confirmed": False, "code_seen": False, "label_seen": False,
+                    "all_texts": [f"error: {e}"], "boxes": [], "method": "vlm"}
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        value = pressure_ocr.parse_pressure(" ".join(lines))
+        code_seen, label_seen = pressure_ocr.check_mode(lines)
+        return {
+            "value": value,
+            "ocr_conf": 1.0 if value is not None else 0.0,
+            "det_conf": 1.0 if value is not None else 0.0,
+            "code_seen": code_seen,
+            "label_seen": label_seen,
+            "mode_confirmed": code_seen or label_seen,
+            "all_texts": lines or ["(empty reply)"],
+            "boxes": [(" | ".join(lines), 1.0, 1.0, (rx, ry, rx + w, ry + h))] if lines else [],
+            "method": "vlm",
+        }
+
     def _read_frame(self, raw_crop, rx, ry):
         """Read the LCD, preferring template matching over general OCR.
 
@@ -319,6 +346,9 @@ class PressureLCDReader:
         have been calibrated, so YOLO+EasyOCR stays as the fallback for
         anything they can't vouch for.
         """
+        if config.PRESSURE_OCR_ENGINE == "vlm":
+            return self._vlm_read(raw_crop, rx, ry)
+
         if config.PRESSURE_OCR_USE_TEMPLATE and self._template.available():
             try:
                 result = self._template_read(raw_crop, rx, ry)
@@ -435,13 +465,12 @@ class PressureLCDReader:
                 self._last_boxes = result["boxes"]   # already in full-frame coords
 
             if accepted:
-                # A validated read is a vote, not a result. Nothing reaches the
-                # graph until the window closes and the votes are counted.
+                # Every validated read goes straight onto the graph. (A 10-min
+                # vote used to sit here; the VLM reads reliably enough that the
+                # range/jump checks are the only guard now.)
                 self._jump_candidate_value = None
                 self._jump_candidate_count = 0
-                self._votes.append(result["value"])
-                with self._lock:
-                    self._status["votes"] = len(self._votes)
+                self._commit(ts, result["value"])
                 attempt_num = 0
                 next_attempt_time = time.time() + config.PRESSURE_OCR_INTERVAL
             elif attempt_num > config.PRESSURE_OCR_MAX_RETRIES:
@@ -450,55 +479,21 @@ class PressureLCDReader:
             else:
                 next_attempt_time = time.time() + config.PRESSURE_OCR_RETRY_DELAY
 
-            if time.time() - self._window_start >= config.PRESSURE_OCR_WINDOW:
-                self._close_window()
-
-    def _close_window(self):
-        """Tally the window's votes and commit the winner, if there is one.
-
-        The display shows two significant figures, so agreeing reads are
-        byte-identical — no tolerance band needed, an exact tally is right.
-        A window whose votes never agree is dropped rather than guessed at;
-        the next one is only 10 minutes away.
-        """
-        votes, self._votes = self._votes, []
-        self._window_start = time.time()
-        ts = datetime.now()
-
-        summary = None
-        if not votes:
-            summary = "no valid readings"
-        else:
-            tally = Counter(f"{v:.3E}" for v in votes)
-            top, n = tally.most_common(1)[0]
-            if n < config.PRESSURE_OCR_WINDOW_MIN_VOTES:
-                summary = (f"discarded: best value {top} had only {n} vote"
-                           f" (need {config.PRESSURE_OCR_WINDOW_MIN_VOTES})")
-            else:
-                value = float(top)
-                self._last_accepted_value = value
-                pressure_ocr.write_csv_row(
-                    config.PRESSURE_OCR_LOG_DIR, "pressure_ocr_clean", pressure_ocr.CLEAN_HEADER,
-                    [ts.strftime("%Y-%m-%d %H:%M:%S"), f"{value:.3E}"])
-                _append_pressure_entry(config.PRESSURE_OCR_PRESET, ts.strftime("%Y-%m-%dT%H:%M:%S"),
-                                       value, note=f"auto:vote {n}/{len(votes)}")
-                summary = f"committed {top} on {n}/{len(votes)} votes"
-                with self._lock:
-                    self._status["last_accepted_value"] = value
-                    self._status["last_accepted_time"] = ts.strftime("%Y-%m-%d %H:%M:%S")
-
-        print(f"[pressure OCR] window closed: {summary}")
+    def _commit(self, ts, value):
+        self._last_accepted_value = value
+        pressure_ocr.write_csv_row(
+            config.PRESSURE_OCR_LOG_DIR, "pressure_ocr_clean", pressure_ocr.CLEAN_HEADER,
+            [ts.strftime("%Y-%m-%d %H:%M:%S"), f"{value:.3E}"])
+        _append_pressure_entry(config.PRESSURE_OCR_PRESET, ts.strftime("%Y-%m-%dT%H:%M:%S"),
+                               value, note="auto:vlm")
         with self._lock:
-            self._status["votes"] = 0
-            self._status["last_window_summary"] = summary
-            self._status["last_window_time"] = ts.strftime("%Y-%m-%d %H:%M:%S")
+            self._status["last_accepted_value"] = value
+            self._status["last_accepted_time"] = ts.strftime("%Y-%m-%d %H:%M:%S")
+            self._status["points_saved"] += 1
 
     def get_status(self):
         with self._lock:
             status = dict(self._status)
-        remaining = config.PRESSURE_OCR_WINDOW - (time.time() - self._window_start)
-        status["window_ends_in"] = max(0, int(remaining))
-        status["window_min_votes"] = config.PRESSURE_OCR_WINDOW_MIN_VOTES
         return status
 
     def reset_baseline(self):
@@ -508,13 +503,10 @@ class PressureLCDReader:
         self._last_accepted_value = None
         self._jump_candidate_value = None
         self._jump_candidate_count = 0
-        self._votes = []                     # votes belong to the old session
-        self._window_start = time.time()
         with self._lock:
             self._status["last_accepted_value"] = None
             self._status["last_accepted_time"] = None
-            self._status["votes"] = 0
-            self._status["last_window_summary"] = None
+            self._status["points_saved"] = 0
 
     def get_overlay(self):
         """(boxes, status_line) for drawing onto the live stream. status_line

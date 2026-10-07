@@ -11,11 +11,16 @@ CAMERA_INDEX = 1                  # 0 = first camera, 1 = second, etc. — share
 # readable picture (0% -> 37% OCR accept rate over ~3h in one session) and resets
 # the moment the camera gets bumped or room lighting changes. Set any of these to
 # None to leave that particular property on auto.
-CAMERA_MANUAL_EXPOSURE = -5
-CAMERA_GAIN = 0
-CAMERA_MANUAL_WB_TEMP = 3033
-CAMERA_BRIGHTNESS = 64
-CAMERA_CONTRAST = 64
+# Temporarily set to auto (None) for general room monitoring rather than the
+# dim pump LCD — the camera adapts its own exposure/white-balance to the scene.
+# Restore the tuned values below when pointing back at the pump:
+#   CAMERA_MANUAL_EXPOSURE = -5, CAMERA_GAIN = 0, CAMERA_MANUAL_WB_TEMP = 3033,
+#   CAMERA_BRIGHTNESS = 64, CAMERA_CONTRAST = 64
+CAMERA_MANUAL_EXPOSURE = None
+CAMERA_GAIN = None
+CAMERA_MANUAL_WB_TEMP = None
+CAMERA_BRIGHTNESS = None
+CAMERA_CONTRAST = None
 SNAPSHOT_INTERVAL = 600           # seconds — default (30s floor; pressure OCR below is not reliable enough
                                    # yet on real hardware to be the only frequent-monitoring source)
 SNAPSHOT_DIR = os.path.join(BASE_DIR, "snapshots")
@@ -29,7 +34,8 @@ LS336_LOG_DIR  = os.path.join(BASE_DIR, "logs")
 
 # Pressure LCD OCR (YOLO text-detect + EasyOCR) — see YOLO_test/PRESSURE_LCD_READER.md
 # Reads frames from the same camera as above (CAMERA_INDEX) — no separate camera/index needed.
-PRESSURE_OCR_INTERVAL = 20         # seconds between reading attempts
+PRESSURE_OCR_INTERVAL = 30         # seconds between reading attempts (20 for local YOLO; each
+                                   # attempt is now a network call to the VLM, so go gentler while testing)
 PRESSURE_OCR_ROI = None            # (x, y, w, h) fallback used only if no ROI has ever been saved from
                                    # the web UI (see pressure_ocr_roi.json, created by the "Select ROI"
                                    # control on the dashboard — drag a box on the live stream, no restart
@@ -55,17 +61,7 @@ PRESSURE_OCR_TEMPLATE_MIN_SCORE = 0.70  # reject the reading if any character of
                                         # correct glyphs land at 0.73-0.91, while a glyph with
                                         # no template (matched to the nearest wrong one) fell to
                                         # 0.35-0.61 — so this cleanly separates the two.
-# Window voting. Individual reads of this LCD are unreliable, but a reading is
-# only wanted every 10 minutes or so — which leaves room to read repeatedly and
-# commit the answer the attempts agree on, rather than trusting any single one.
-# Replayed against a real log, requiring 2 agreeing reads produced a correct
-# value in 23 of 37 ten-minute windows (and that log predates the exposure fix).
-# Note this guards against random misreads only: a systematic misread repeats
-# identically across every attempt and will win its own vote.
-PRESSURE_OCR_WINDOW = 600          # seconds per voting window
-PRESSURE_OCR_WINDOW_MIN_VOTES = 2  # agreeing reads needed to commit the window
-
-PRESSURE_OCR_PRESET = "pressure_yolo"   # kept separate from manually-entered presets
+PRESSURE_OCR_PRESET = "pressure_vlm"    # kept separate from manually-entered presets and the YOLO runs
 PRESSURE_OCR_CONF_MIN = 0.5
 PRESSURE_OCR_MIN = 1e-9            # sanity bounds, mbar
 PRESSURE_OCR_MAX = 1100.0          # above atmospheric, covers pump-down from ambient
@@ -75,3 +71,16 @@ PRESSURE_OCR_JUMP_CONFIRM_TOLERANCE = 0.3  # how close (in decades) those repeat
 PRESSURE_OCR_MAX_RETRIES = 2       # extra attempts per cycle after a rejection
 PRESSURE_OCR_RETRY_DELAY = 2.0     # seconds before a retry attempt
 PRESSURE_OCR_LOG_DIR = os.path.join(BASE_DIR, "logs")
+
+# Reading engine for this branch. "vlm" asks a vision-language model (below);
+# "local" is the previous template matching -> YOLO+EasyOCR path.
+PRESSURE_OCR_ENGINE = "vlm"
+
+# Self-hosted OpenAI-compatible endpoint (NARIT). The API key is NOT set here:
+# put   NARIT_LLM_API_KEY=...   in a .env file next to app.py (gitignored).
+VLM_BASE_URL = "https://lllm.narit.or.th/v1"
+VLM_MODEL = "OpenAI-NARIT-Local-AI-01"                     # "" = pick from the server's model list (prefers a name with
+                                   # deepseek+flash). Run `python vlm_check.py` to see the ids, then pin one.
+VLM_TIMEOUT = 30                   # seconds per request
+VLM_MAX_TOKENS = 2000              # this is a reasoning model: it "thinks" before answering, and with a small
+                                   # budget (100) the thinking used it all and the reply came back empty. ~150-300 is typical.
