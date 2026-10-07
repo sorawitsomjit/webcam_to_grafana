@@ -11,3 +11,4 @@ YOLO_test/exposure_test/
 # data rather than source, and only valid for the rig they were cut on.
 lcd_templates/
 logs/
+ocr_settings.json

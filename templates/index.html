@@ -284,7 +284,7 @@
 
       <!-- Pressure LCD OCR (VLM) — kept close to the stream it reads from -->
       <div class="sec-title" style="margin-top:16px;">
-        Pressure LCD OCR (VLM)
+        Pressure LCD OCR <span id="pocr-engine-title"></span>
         <span id="pocr-badge" class="badge badge-off">● Disconnected</span>
         <span class="ls-last-ts" id="pocr-ts"></span>
       </div>
@@ -311,8 +311,20 @@
         </div>
       </div>
       <div class="controls" style="margin-top:8px;">
+        <div class="preset-row" style="width:100%;">
+          <label>Engine:</label>
+          <select id="ocrEngineSelect" onchange="changeOcrEngine(this.value)">
+            <option value="vlm">VLM (DeepSeek)</option>
+            <option value="local">YOLO / template (local)</option>
+          </select>
+          <label>Saves to:</label>
+          <select id="ocrPresetSelect" onchange="changeOcrPreset(this.value)" style="flex:1;min-width:110px;"></select>
+          <button class="btn btn-sm" onclick="newOcrPreset()">+ New preset</button>
+        </div>
+      </div>
+      <div class="controls" style="margin-top:8px;">
         <button class="btn btn-sm" onclick="newOcrSession()">New OCR Session</button>
-        <span class="info-tag">Archives current pressure_vlm data and starts fresh (no restart needed)</span>
+        <span class="info-tag">Archives the current OCR preset's data and starts it fresh (no restart needed)</span>
       </div>
     </section>
 
@@ -936,7 +948,60 @@ async function loadPresets() {
   let presets = await r.json();
   if (!presets.includes('default')) presets = ['default',...presets];
   const sel = document.getElementById('presetSelect');
-  sel.innerHTML = presets.map(p=>`<option value="${p}" ${p===currentPreset?'selected':''}>${p}</option>`).join('');
+  sel.innerHTML = presets.map(p=>`<option value="${p}" ${p===currentPreset?'selected':''}>${p}${ocrTag(p)}</option>`).join('');
+  const osel = document.getElementById('ocrPresetSelect');
+  if (osel) osel.innerHTML = presets.map(p=>`<option value="${p}" ${p===ocrSettings.target?'selected':''}>${p}</option>`).join('');
+}
+
+// Which engine (if any) is writing into a preset — shown next to its name in the
+// graph's dropdown so a VLM preset and a YOLO preset can't be mixed up.
+const ENGINE_LABEL = { vlm: 'VLM', local: 'YOLO' };
+let ocrSettings = { engine: 'vlm', presets: {}, target: '' };
+function ocrTag(name) {
+  const tags = Object.entries(ocrSettings.presets || {})
+    .filter(([, p]) => p === name)
+    .map(([e]) => ENGINE_LABEL[e] + (e === ocrSettings.engine ? ' ●' : ''));
+  return tags.length ? '  [' + tags.join(', ') + ']' : '';
+}
+
+async function loadOcrSettings() {
+  try {
+    ocrSettings = await (await fetch('/api/pressure_ocr/settings')).json();
+    document.getElementById('ocrEngineSelect').value = ocrSettings.engine;
+    document.getElementById('pocr-engine-title').textContent = '(' + ENGINE_LABEL[ocrSettings.engine] + ')';
+    await loadPresets();
+  } catch {}
+}
+
+async function postOcrSettings(body) {
+  const r = await fetch('/api/pressure_ocr/settings', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  const d = await r.json();
+  if (!d.ok) { toast(d.error || 'Failed', false); return false; }
+  await loadOcrSettings();
+  return true;
+}
+
+async function changeOcrEngine(engine) {
+  if (await postOcrSettings({engine})) toast('OCR engine: ' + ENGINE_LABEL[engine] + ' → ' + ocrSettings.target);
+  else await loadOcrSettings();
+}
+
+async function changeOcrPreset(preset) {
+  if (await postOcrSettings({preset})) toast(ENGINE_LABEL[ocrSettings.engine] + ' now saves to ' + preset);
+}
+
+async function newOcrPreset() {
+  const name = (prompt('ชื่อ preset ใหม่สำหรับ ' + ENGINE_LABEL[ocrSettings.engine] + ':') || '').trim();
+  if (!name) return;
+  if (await postOcrSettings({preset: name})) {
+    currentPreset = name;
+    await loadPresets();
+    document.getElementById('presetSelect').value = name;
+    await loadData(name);
+    renderChart();
+    toast('Created "' + name + '" for ' + ENGINE_LABEL[ocrSettings.engine]);
+  }
 }
 
 async function loadData(preset) {
@@ -1062,7 +1127,7 @@ function exportCSV() {
 (async function init() {
   document.getElementById('timeInput').value=nowBangkok();
   initChart();
-  await loadPresets();
+  await loadOcrSettings();   // also loads the preset list
   // restore last used preset from localStorage
   const saved = localStorage.getItem('activePreset');
   if (saved) {
@@ -1181,7 +1246,7 @@ async function pollPressureOcr() {
 }
 
 async function newOcrSession() {
-  if (!confirm('เริ่ม OCR session ใหม่? (ค่าเดิมใน pressure_vlm จะถูก archive ไปเป็น preset แยก ไม่หาย)')) return;
+  if (!confirm('เริ่ม OCR session ใหม่? (ค่าเดิมใน ' + ocrSettings.target + ' จะถูก archive ไปเป็น preset แยก ไม่หาย)')) return;
   try {
     const r = await fetch('/api/pressure_ocr/new_session', { method: 'POST' });
     const d = await r.json();

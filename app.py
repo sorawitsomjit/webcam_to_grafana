@@ -220,6 +220,59 @@ def set_roi(roi):
         return _current_roi
 
 
+# ─── Pressure OCR engine + target preset ─────────────────────────────────────
+# Which engine reads the LCD, and which graph preset it writes into — chosen at
+# runtime from the dashboard and kept in ocr_settings.json (config.py supplies the
+# defaults). Each engine has its OWN target preset, so switching engine switches
+# where readings land and a VLM run can never end up mixed into a YOLO preset.
+
+_OCR_SETTINGS_FILE = os.path.join(config.BASE_DIR, "ocr_settings.json")
+_OCR_ENGINES = ("vlm", "local")          # "local" = template matching -> YOLO+EasyOCR
+_ocr_settings_lock = threading.Lock()
+
+
+def _load_ocr_settings():
+    s = {"engine": config.PRESSURE_OCR_ENGINE,
+         "presets": {"vlm": config.PRESSURE_OCR_PRESET, "local": config.PRESSURE_OCR_PRESET_LOCAL}}
+    if os.path.exists(_OCR_SETTINGS_FILE):
+        try:
+            with open(_OCR_SETTINGS_FILE, encoding="utf-8") as f:
+                saved = json.load(f)
+            if saved.get("engine") in _OCR_ENGINES:
+                s["engine"] = saved["engine"]
+            for k in _OCR_ENGINES:
+                if saved.get("presets", {}).get(k):
+                    s["presets"][k] = saved["presets"][k]
+        except (OSError, ValueError):
+            pass
+    return s
+
+
+_ocr_settings = _load_ocr_settings()
+
+
+def get_ocr_settings():
+    with _ocr_settings_lock:
+        return {"engine": _ocr_settings["engine"], "presets": dict(_ocr_settings["presets"]),
+                "target": _ocr_settings["presets"][_ocr_settings["engine"]]}
+
+
+def update_ocr_settings(engine=None, preset=None, rename=None):
+    """engine: switch engine. preset: point the (new) engine at this preset.
+    rename: (old, new) — a preset got renamed, keep any engine pointing at it."""
+    with _ocr_settings_lock:
+        if engine in _OCR_ENGINES:
+            _ocr_settings["engine"] = engine
+        if preset:
+            _ocr_settings["presets"][_ocr_settings["engine"]] = preset
+        if rename:
+            for k, v in _ocr_settings["presets"].items():
+                if v == rename[0]:
+                    _ocr_settings["presets"][k] = rename[1]
+        with open(_OCR_SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(_ocr_settings, f)
+
+
 # ─── Pressure LCD OCR (YOLO) ─────────────────────────────────────────────────
 # See YOLO_test/PRESSURE_LCD_READER.md for how this pipeline works and why.
 
@@ -238,6 +291,8 @@ class PressureLCDReader:
         self._last_accepted_value = None
         self._jump_candidate_value = None   # tracks a repeated out-of-jump-range reading across cycles
         self._jump_candidate_count = 0       # to tell "real step change" apart from "one-off misread"
+        self._confirm_value = None           # a large (but plausible) change waiting for a repeat read
+        self._confirm_count = 0
         self._last_boxes = []          # [(text, det_conf, ocr_conf, (x1,y1,x2,y2))] in full-frame coords, for overlay
         self._status = {
             "connected": False,
@@ -326,13 +381,18 @@ class PressureLCDReader:
         lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
         value = pressure_ocr.parse_pressure(" ".join(lines))
         code_seen, label_seen = pressure_ocr.check_mode(lines)
+        # Stricter than the general OCR path, because the model's text is free-form:
+        # the "340" code itself must be on screen (not just the word "Pressure"), and
+        # the reading must carry its unit, so a stray number-shaped string can't pass.
+        unit_ok = "mbar" in text.lower()
         return {
             "value": value,
             "ocr_conf": 1.0 if value is not None else 0.0,
             "det_conf": 1.0 if value is not None else 0.0,
             "code_seen": code_seen,
             "label_seen": label_seen,
-            "mode_confirmed": code_seen or label_seen,
+            "mode_confirmed": code_seen,
+            "unit_ok": unit_ok,
             "all_texts": lines or ["(empty reply)"],
             "boxes": [(" | ".join(lines), 1.0, 1.0, (rx, ry, rx + w, ry + h))] if lines else [],
             "method": "vlm",
@@ -346,7 +406,7 @@ class PressureLCDReader:
         have been calibrated, so YOLO+EasyOCR stays as the fallback for
         anything they can't vouch for.
         """
-        if config.PRESSURE_OCR_ENGINE == "vlm":
+        if get_ocr_settings()["engine"] == "vlm":
             return self._vlm_read(raw_crop, rx, ry)
 
         if config.PRESSURE_OCR_USE_TEMPLATE and self._template.available():
@@ -443,6 +503,11 @@ class PressureLCDReader:
                     self._jump_candidate_value = None
                     self._jump_candidate_count = 0
 
+            if accepted and not result.get("unit_ok", True):
+                accepted, reason = False, "no_mbar_unit"
+            if accepted and not reason.startswith("ok (jump confirmed"):
+                accepted, reason = self._confirm_gate(result["value"], reason)
+
             pressure_ocr.write_csv_row(config.PRESSURE_OCR_LOG_DIR, "pressure_ocr_raw", pressure_ocr.RAW_HEADER, [
                 ts.strftime("%Y-%m-%d %H:%M:%S"), attempt_num, " | ".join(result["all_texts"]),
                 result["value"] if result["value"] is not None else "",
@@ -470,7 +535,7 @@ class PressureLCDReader:
                 # range/jump checks are the only guard now.)
                 self._jump_candidate_value = None
                 self._jump_candidate_count = 0
-                self._commit(ts, result["value"])
+                self._commit(ts, result["value"], result.get("method"))
                 attempt_num = 0
                 next_attempt_time = time.time() + config.PRESSURE_OCR_INTERVAL
             elif attempt_num > config.PRESSURE_OCR_MAX_RETRIES:
@@ -479,13 +544,42 @@ class PressureLCDReader:
             else:
                 next_attempt_time = time.time() + config.PRESSURE_OCR_RETRY_DELAY
 
-    def _commit(self, ts, value):
+    def _confirm_gate(self, value, reason):
+        """Hold back a reading that moved a lot until a repeat read agrees.
+
+        A steady pressure goes straight through. A reading more than
+        PRESSURE_OCR_CONFIRM_DECADES away from the last committed one is held;
+        it is only committed once PRESSURE_OCR_CONFIRM_COUNT consecutive reads
+        land on it. This is what catches an exponent misread (a 10x error looks
+        plausible and slips past the range/jump checks), at no cost while the
+        pressure is steady. Returns (accepted, reason).
+        """
+        last = self._last_accepted_value
+        if last is None or last <= 0 or value <= 0:
+            self._confirm_value, self._confirm_count = None, 0
+            return True, reason
+        if abs(math.log10(value) - math.log10(last)) <= config.PRESSURE_OCR_CONFIRM_DECADES:
+            self._confirm_value, self._confirm_count = None, 0
+            return True, reason
+        if (self._confirm_value is not None
+                and abs(math.log10(value) - math.log10(self._confirm_value))
+                <= config.PRESSURE_OCR_CONFIRM_TOLERANCE):
+            self._confirm_count += 1
+        else:
+            self._confirm_value, self._confirm_count = value, 1
+        need = config.PRESSURE_OCR_CONFIRM_COUNT
+        if self._confirm_count >= need:
+            self._confirm_value, self._confirm_count = None, 0
+            return True, f"ok (change confirmed x{need})"
+        return False, f"awaiting_confirm({self._confirm_count}/{need})"
+
+    def _commit(self, ts, value, method):
         self._last_accepted_value = value
         pressure_ocr.write_csv_row(
             config.PRESSURE_OCR_LOG_DIR, "pressure_ocr_clean", pressure_ocr.CLEAN_HEADER,
             [ts.strftime("%Y-%m-%d %H:%M:%S"), f"{value:.3E}"])
-        _append_pressure_entry(config.PRESSURE_OCR_PRESET, ts.strftime("%Y-%m-%dT%H:%M:%S"),
-                               value, note="auto:vlm")
+        _append_pressure_entry(get_ocr_settings()["target"], ts.strftime("%Y-%m-%dT%H:%M:%S"),
+                               value, note=f"auto:{method}")
         with self._lock:
             self._status["last_accepted_value"] = value
             self._status["last_accepted_time"] = ts.strftime("%Y-%m-%d %H:%M:%S")
@@ -494,6 +588,7 @@ class PressureLCDReader:
     def get_status(self):
         with self._lock:
             status = dict(self._status)
+        status.update(engine=get_ocr_settings()["engine"], target_preset=get_ocr_settings()["target"])
         return status
 
     def reset_baseline(self):
@@ -503,6 +598,7 @@ class PressureLCDReader:
         self._last_accepted_value = None
         self._jump_candidate_value = None
         self._jump_candidate_count = 0
+        self._confirm_value, self._confirm_count = None, 0
         with self._lock:
             self._status["last_accepted_value"] = None
             self._status["last_accepted_time"] = None
@@ -759,7 +855,8 @@ def _save_pressure(data):
 
 
 pressure_store = _load_pressure()
-pressure_store.setdefault(config.PRESSURE_OCR_PRESET, [])
+for _p in _ocr_settings["presets"].values():
+    pressure_store.setdefault(_p, [])
 
 
 def _append_pressure_entry(preset, time_str, value, cryostat=None, speed=None, current=None, note=""):
@@ -869,6 +966,7 @@ def rename_preset():
             return jsonify({"ok": False, "error": "Name already exists"}), 409
         pressure_store[new] = pressure_store.pop(old)
         _save_pressure(pressure_store)
+    update_ocr_settings(rename=(old, new))
     return jsonify({"ok": True})
 
 
@@ -879,6 +977,8 @@ def delete_preset():
         return jsonify({"ok": False, "error": "Name required"}), 400
     if name == "default":
         return jsonify({"ok": False, "error": "Cannot delete default preset"}), 400
+    if name in get_ocr_settings()["presets"].values():
+        return jsonify({"ok": False, "error": "OCR is saving into this preset - point the engine at another one first"}), 400
     with _pressure_lock:
         pressure_store.pop(name, None)
         _save_pressure(pressure_store)
@@ -992,7 +1092,7 @@ def pressure_ocr_status():
 def pressure_ocr_new_session():
     """Archive whatever's currently in the live OCR preset (if non-empty) under
     a timestamped name and start a fresh empty one — no app restart needed."""
-    preset = config.PRESSURE_OCR_PRESET
+    preset = get_ocr_settings()["target"]
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     archived = None
     with _pressure_lock:
@@ -1004,6 +1104,31 @@ def pressure_ocr_new_session():
         _save_pressure(pressure_store)
     pressure_lcd_reader.reset_baseline()
     return jsonify({"ok": True, "archived_as": archived, "active_preset": preset})
+
+
+@app.route("/api/pressure_ocr/settings", methods=["GET"])
+def get_pressure_ocr_settings():
+    return jsonify(get_ocr_settings())
+
+
+@app.route("/api/pressure_ocr/settings", methods=["POST"])
+def set_pressure_ocr_settings():
+    """{engine?, preset?} — switch engine and/or point the (resulting) engine
+    at a preset. The preset is created if it doesn't exist yet."""
+    body = request.get_json() or {}
+    engine = body.get("engine")
+    preset = (body.get("preset") or "").strip() or None
+    if engine is not None and engine not in _OCR_ENGINES:
+        return jsonify({"ok": False, "error": "Unknown engine"}), 400
+    if preset:
+        with _pressure_lock:
+            pressure_store.setdefault(preset, [])
+            _save_pressure(pressure_store)
+    before = get_ocr_settings()
+    update_ocr_settings(engine=engine, preset=preset)
+    if get_ocr_settings()["target"] != before["target"]:
+        pressure_lcd_reader.reset_baseline()    # new preset = new history to compare jumps against
+    return jsonify({"ok": True, **get_ocr_settings()})
 
 
 @app.route("/embed/pressure_ocr")

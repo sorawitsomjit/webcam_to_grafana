@@ -61,20 +61,28 @@ PRESSURE_OCR_TEMPLATE_MIN_SCORE = 0.70  # reject the reading if any character of
                                         # correct glyphs land at 0.73-0.91, while a glyph with
                                         # no template (matched to the nearest wrong one) fell to
                                         # 0.35-0.61 — so this cleanly separates the two.
-PRESSURE_OCR_PRESET = "pressure_vlm"    # kept separate from manually-entered presets and the YOLO runs
+PRESSURE_OCR_PRESET = "pressure_vlm"    # default preset for the VLM engine (changeable on the dashboard)
+PRESSURE_OCR_PRESET_LOCAL = "pressure_yolo"  # default preset for the local template/YOLO engine
 PRESSURE_OCR_CONF_MIN = 0.5
 PRESSURE_OCR_MIN = 1e-9            # sanity bounds, mbar
 PRESSURE_OCR_MAX = 1100.0          # above atmospheric, covers pump-down from ambient
 PRESSURE_OCR_JUMP_DECADES = 3.0    # reject/retry if a reading jumps more than this many orders of magnitude
 PRESSURE_OCR_JUMP_CONFIRM_COUNT = 3       # accept a jump anyway if this many attempts in a row agree
 PRESSURE_OCR_JUMP_CONFIRM_TOLERANCE = 0.3  # how close (in decades) those repeats need to be to "agree"
+# A reading that moves more than this many decades from the last committed one is
+# held until repeat reads agree (catches 10x exponent misreads; steady readings
+# are unaffected). The retry that follows an "awaiting_confirm" comes after
+# PRESSURE_OCR_RETRY_DELAY, so this relies on PRESSURE_OCR_MAX_RETRIES >= 1.
+PRESSURE_OCR_CONFIRM_DECADES = 0.5
+PRESSURE_OCR_CONFIRM_COUNT = 2            # consecutive agreeing reads needed (including the first)
+PRESSURE_OCR_CONFIRM_TOLERANCE = 0.05     # decades; the display has 2 significant figures
 PRESSURE_OCR_MAX_RETRIES = 2       # extra attempts per cycle after a rejection
 PRESSURE_OCR_RETRY_DELAY = 2.0     # seconds before a retry attempt
 PRESSURE_OCR_LOG_DIR = os.path.join(BASE_DIR, "logs")
 
 # Reading engine for this branch. "vlm" asks a vision-language model (below);
 # "local" is the previous template matching -> YOLO+EasyOCR path.
-PRESSURE_OCR_ENGINE = "vlm"
+PRESSURE_OCR_ENGINE = "vlm"        # default; switchable at runtime from the dashboard
 
 # Self-hosted OpenAI-compatible endpoint (NARIT). The API key is NOT set here:
 # put   NARIT_LLM_API_KEY=...   in a .env file next to app.py (gitignored).
