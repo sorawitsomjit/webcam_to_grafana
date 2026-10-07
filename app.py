@@ -106,7 +106,10 @@ class LakeShoreReader:
         self._latest = None
         self._lock = threading.Lock()
         self._connected = False
-        threading.Thread(target=self._loop, daemon=True).start()
+        # Off by default: with no LakeShore on the bench the thread would just retry
+        # the serial port every 30s forever. Set LS336_ENABLED = True in config.py to use it.
+        if config.LS336_ENABLED:
+            threading.Thread(target=self._loop, daemon=True).start()
 
     def _query(self, ser, cmd):
         ser.reset_input_buffer()

@@ -27,6 +27,7 @@ SNAPSHOT_DIR = os.path.join(BASE_DIR, "snapshots")
 PORT = 8080
 
 # LakeShore 336
+LS336_ENABLED  = False            # True = start the reader thread (retries the serial port every 30s if absent)
 LS336_PORT     = "COM10"
 LS336_BAUD     = 57600
 LS336_INTERVAL = 60               # seconds between readings
